@@ -109,6 +109,56 @@
     }
     return profile;
   };
+  const MODULE_HEADER_HINT = /^(技能|能力|优势|总结|其他|技能总结|能力描述|全局经验|技能与工具|AI能力|工程能力|技术栈|核心能力|个人优势|其他信息|专业技能)(?:[:：]?\s*)$/i;
+  const ABILITY_HINT = /(熟练|精通|熟悉|掌握|擅长|具备|能够|善于|方法论|工具链|技术栈|prompt engineering|rag|multi-agent|agent|workflow|aigc|llm|模型|能力)/i;
+  const PROJECT_NARRATIVE_HINT = /(负责|实现|优化|上线|提升|降低|完成|重构|设计|搭建|开发|测试|落地|推动|迭代|产出|转化|准确率|时延|用户|业务|场景|需求|复盘)/;
+  const TOOL_HINT = /(cursor|dify|coze|supabase|vercel|n8n|langchain|lark|notion|mysql|redis|docker|k8s|python|typescript|react|next\.?js|node\.?js)/i;
+  const AI_HINT = /(ai agent|agent|multi-agent|prompt engineering|rag|llm|midjourney|stable diffusion|flux|comfyui|siliconflow|gpt|claude|qwen|deepseek)/i;
+  const ENGINEERING_HINT = /(架构|工程化|性能|可观测|自动化|部署|联调|稳定性|重构|测试|监控|pipeline|workflow|serverless|ci\/cd|debug)/i;
+  const cleanBullet = (line) => String(line || '').replace(/^[•·\-\d.、\s]+/, '').trim();
+  const isModuleHeader = (line) => MODULE_HEADER_HINT.test(String(line || '').trim());
+  const looksLikeAbilitySummary = (line) => {
+    const text = cleanBullet(line);
+    if (!text) return false;
+    const hasAbility = ABILITY_HINT.test(text) || TOOL_HINT.test(text) || AI_HINT.test(text) || ENGINEERING_HINT.test(text);
+    const hasNarrative = PROJECT_NARRATIVE_HINT.test(text);
+    const tokenCount = text.split(/[、,，/| ]+/).filter(Boolean).length;
+    return hasAbility && (!hasNarrative || tokenCount >= 5);
+  };
+  const classifyAbility = (line) => {
+    const text = cleanBullet(line);
+    if (!text) return null;
+    if (TOOL_HINT.test(text)) return 'skills';
+    if (AI_HINT.test(text)) return 'advantages';
+    if (ENGINEERING_HINT.test(text)) return 'advantages';
+    return 'other';
+  };
+  const pushUnique = (arr, value) => {
+    const text = cleanBullet(value);
+    if (!text) return;
+    if (!arr.some((x) => x === text)) arr.push(text);
+  };
+  const mergeBullets = (base, items) => {
+    const all = []
+      .concat(String(base || '').split(/\n+/).map((x) => x.trim()).filter(Boolean))
+      .concat(items);
+    return [...new Set(all)].join('\n').trim();
+  };
+  const mergeTags = (base, items) => {
+    const all = []
+      .concat(String(base || '').split(/[,，/|\n]+/).map((x) => x.trim()).filter(Boolean))
+      .concat(items);
+    return [...new Set(all)].join(' / ').trim();
+  };
+  const shouldTerminateDescription = (line, current) => {
+    if (!current) return false;
+    const text = cleanBullet(line);
+    if (!text) return false;
+    if (isModuleHeader(text)) return true;
+    const desc = String(current.description || '');
+    if (desc.length > 380 && looksLikeAbilitySummary(text)) return true;
+    return false;
+  };
   function parseResumeText(rawText) {
     const text = String(rawText || '').replace(/\r/g, '').trim();
     const blocks = splitBlocks(text);
@@ -124,7 +174,26 @@
       wechat: pickByRegex(text, /(?:微信号|微信)[:：]\s*([^\n]+)/),
       emergencyContact: pickByRegex(text, /紧急联系人[:：]\s*([^\n]+)/),
       emergencyPhone: pickByRegex(text, /紧急联系方式[:：]\s*([^\n]+)/),
+      skills: '',
+      advantages: '',
+      otherInfo: '',
       ...parseEducation(text, blocks)
+    };
+
+    const skillsBucket = [];
+    const advantagesBucket = [];
+    const otherBucket = [];
+    const flushCurrent = () => {
+      if (current && Object.values(current).some(Boolean)) experiences.push(current);
+      current = null;
+    };
+    const collectAbilityLine = (line) => {
+      const text = cleanBullet(line);
+      if (!text || isModuleHeader(text)) return;
+      const group = classifyAbility(text);
+      if (group === 'skills') pushUnique(skillsBucket, text);
+      else if (group === 'advantages') pushUnique(advantagesBucket, text);
+      else pushUnique(otherBucket, text);
     };
 
     const experiences = [];
@@ -132,17 +201,29 @@
     let current = null;
     const lines = text.split(/\n/).map((x) => x.trim()).filter(Boolean);
     for (const line of lines) {
+      if (isModuleHeader(line)) {
+        flushCurrent();
+        continue;
+      }
       if (EDUCATION_HINT.test(line)) continue;
+      if (shouldTerminateDescription(line, current)) {
+        flushCurrent();
+        collectAbilityLine(line);
+        continue;
+      }
+      if (!current && looksLikeAbilitySummary(line)) {
+        collectAbilityLine(line);
+        continue;
+      }
       if (/(项目经历|实习经历|工作经历)/.test(line)) {
         currentType = /实习/.test(line) ? 'internship' : /工作/.test(line) ? 'work' : 'project';
-        if (current && Object.values(current).some(Boolean)) experiences.push(current);
-        current = null;
+        flushCurrent();
         continue;
       }
       const titleMatch = line.match(/^(\d{4}[.-]\d{1,2}.*?)(?:\s{2,}|\t+)(.+?)(?:\s{2,}|\t+)(.+)$/);
       if (titleMatch) {
         if (EDUCATION_HINT.test(titleMatch[2]) || EDUCATION_HINT.test(titleMatch[3])) continue;
-        if (current && Object.values(current).some(Boolean)) experiences.push(current);
+        flushCurrent();
         current = {
           type: currentType,
           title: currentType === 'project' ? titleMatch[2].trim() : '',
@@ -168,7 +249,10 @@
         current.description = `${current.description}${current.description ? '\n' : ''}${line.replace(/^[•·\-]\s*/, '')}`;
       }
     }
-    if (current && Object.values(current).some(Boolean)) experiences.push(current);
+    flushCurrent();
+    profile.skills = mergeTags(profile.skills, skillsBucket);
+    profile.advantages = mergeBullets(profile.advantages, advantagesBucket);
+    profile.otherInfo = mergeBullets(profile.otherInfo, otherBucket);
     return { profile, experiences, rawText: text, blocks };
   }
   function decodeXmlText(xml) {
@@ -538,7 +622,7 @@
     panel.id = PANEL_ID;
     panel.style.left = '20px';
     panel.style.top = '90px';
-    panel.innerHTML = `<div class="raf-head"><div class="raf-brand"><strong>chauny简历助手</strong></div><div class="raf-actions"><label class="raf-pin"><input id="raf-pin" type="checkbox" checked /> 固定屏幕</label><button id="raf-close" class="raf-close" type="button">关闭</button></div></div><div class="raf-toolbar"><div class="raf-toolbar-main"><label class="raf-import"><input id="raf-file" type="file" accept=".docx" hidden /><span>导入简历</span></label><button id="raf-clear" class="raf-mini-btn" type="button">清空数据</button></div><div class="raf-view-switch"><button id="raf-preview-tab" class="raf-tab active" type="button">预览</button><button id="raf-edit-tab" class="raf-tab" type="button">编辑</button></div></div><div id="raf-list" class="raf-list"></div>`;
+    panel.innerHTML = `<div class="raf-head"><div class="raf-brand"><strong>chauny简历助手</strong><div class="raf-slogan">相信我！你就是最牛逼的！——川页chauny。<br/>别忘了关注我昂哈哈哈。</div></div><div class="raf-actions"><label class="raf-pin"><input id="raf-pin" type="checkbox" checked /> 固定屏幕</label><button id="raf-close" class="raf-close" type="button">关闭</button></div></div><div class="raf-toolbar"><div class="raf-toolbar-main"><label class="raf-import"><input id="raf-file" type="file" accept=".docx" hidden /><span>导入简历</span></label><button id="raf-clear" class="raf-mini-btn" type="button">清空数据</button></div><div class="raf-view-switch"><button id="raf-preview-tab" class="raf-tab active" type="button">预览</button><button id="raf-edit-tab" class="raf-tab" type="button">编辑</button></div></div><div id="raf-list" class="raf-list"></div>`;
     document.body.appendChild(panel);
 
     const listEl = panel.querySelector('#raf-list');

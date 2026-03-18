@@ -44,6 +44,12 @@ function splitBlocks(text) {
 }
 
 const EDUCATION_HINT = /(教育经历|学校|学院|专业|学历|主修课程|入学时间|毕业时间|本科|硕士|博士|专科|研究生)/;
+const MODULE_HEADER_HINT = /^(技能|能力|优势|总结|其他|技能总结|能力描述|全局经验|技能与工具|AI能力|工程能力|技术栈|核心能力|个人优势|其他信息|专业技能)(?:[:：]?\s*)$/i;
+const ABILITY_HINT = /(熟练|精通|熟悉|掌握|擅长|具备|能够|善于|方法论|工具链|技术栈|prompt engineering|rag|multi-agent|agent|workflow|aigc|llm|模型|能力)/i;
+const PROJECT_NARRATIVE_HINT = /(负责|实现|优化|上线|提升|降低|完成|重构|设计|搭建|开发|测试|落地|推动|迭代|产出|转化|准确率|时延|用户|业务|场景|需求|复盘)/;
+const TOOL_HINT = /(cursor|dify|coze|supabase|vercel|n8n|langchain|lark|notion|mysql|redis|docker|k8s|python|typescript|react|next\.?js|node\.?js)/i;
+const AI_HINT = /(ai agent|agent|multi-agent|prompt engineering|rag|llm|midjourney|stable diffusion|flux|comfyui|siliconflow|gpt|claude|qwen|deepseek)/i;
+const ENGINEERING_HINT = /(架构|工程化|性能|可观测|自动化|部署|联调|稳定性|重构|测试|监控|pipeline|workflow|serverless|ci\/cd|debug)/i;
 
 function parseInlineEducation(line) {
   const clean = String(line || "").replace(/\s+/g, " ").trim();
@@ -64,6 +70,31 @@ function parseInlineEducation(line) {
     educationStart: dates[0] || "",
     educationEnd: dates[1] || ""
   };
+}
+
+function cleanBullet(line) {
+  return String(line || "").replace(/^[•·\-\d.、\s]+/, "").trim();
+}
+
+function isModuleHeader(line) {
+  return MODULE_HEADER_HINT.test(String(line || "").trim());
+}
+
+function looksLikeAbilitySummary(line) {
+  const text = cleanBullet(line);
+  if (!text) return false;
+  const hasAbility = ABILITY_HINT.test(text) || TOOL_HINT.test(text) || AI_HINT.test(text) || ENGINEERING_HINT.test(text);
+  const hasNarrative = PROJECT_NARRATIVE_HINT.test(text);
+  const tokenCount = text.split(/[、,，/| ]+/).filter(Boolean).length;
+  return hasAbility && (!hasNarrative || tokenCount >= 5);
+}
+
+function classifyAbility(line) {
+  const text = cleanBullet(line);
+  if (!text) return null;
+  if (TOOL_HINT.test(text)) return "skills";
+  if (AI_HINT.test(text) || ENGINEERING_HINT.test(text)) return "advantages";
+  return "other";
 }
 
 function detectExpType(line) {
@@ -101,26 +132,56 @@ function normalizeExperience(experience) {
 function extractExperiences(text) {
   const lines = text.split(/\n/).map((x) => x.trim()).filter(Boolean);
   const experiences = [];
+  const abilities = { skills: [], advantages: [], other: [] };
   let currentType = "project";
   let current = null;
+  const pushCurrent = () => {
+    if (current && (current.company || current.role || current.description || current.title)) {
+      experiences.push(normalizeExperience(current));
+    }
+    current = null;
+  };
+  const collectAbility = (line) => {
+    const text = cleanBullet(line);
+    if (!text || isModuleHeader(text)) return;
+    const key = classifyAbility(text);
+    if (!key) return;
+    if (!abilities[key].includes(text)) abilities[key].push(text);
+  };
+  const shouldTerminateDescription = (line) => {
+    if (!current) return false;
+    if (isModuleHeader(line)) return true;
+    const text = cleanBullet(line);
+    if (!text) return false;
+    const desc = String(current.description || "");
+    return desc.length > 380 && looksLikeAbilitySummary(text);
+  };
 
   for (const line of lines) {
+    if (isModuleHeader(line)) {
+      pushCurrent();
+      continue;
+    }
     if (EDUCATION_HINT.test(line)) continue;
+    if (shouldTerminateDescription(line)) {
+      pushCurrent();
+      collectAbility(line);
+      continue;
+    }
+    if (!current && looksLikeAbilitySummary(line)) {
+      collectAbility(line);
+      continue;
+    }
     if (/(项目经历|实习经历|工作经历)/.test(line)) {
       currentType = detectExpType(line);
-      if (current && (current.company || current.role || current.description || current.title)) {
-        experiences.push(normalizeExperience(current));
-      }
-      current = null;
+      pushCurrent();
       continue;
     }
 
     const titleMatch = line.match(/^(\d{4}[.-]\d{1,2}.*?)(?:\s{2,}|\t+)(.+?)(?:\s{2,}|\t+)(.+)$/);
     if (titleMatch) {
       if (EDUCATION_HINT.test(titleMatch[2]) || EDUCATION_HINT.test(titleMatch[3])) continue;
-      if (current && (current.company || current.role || current.description || current.title)) {
-        experiences.push(normalizeExperience(current));
-      }
+      pushCurrent();
       current = {
         type: currentType,
         period: titleMatch[1].trim(),
@@ -159,11 +220,9 @@ function extractExperiences(text) {
     }
   }
 
-  if (current && (current.company || current.role || current.description || current.title)) {
-    experiences.push(normalizeExperience(current));
-  }
+  pushCurrent();
 
-  return experiences;
+  return { experiences, abilities };
 }
 
 function extractEducation(text) {
@@ -202,7 +261,10 @@ export function parseResumeText(rawText) {
     email: pickByRegex(text, /(?:邮箱|Email|E-mail)[:：]?\s*([^\s\n]+)/i),
     wechat: pickByRegex(text, /(?:微信号|微信)[:：]\s*([^\n]+)/),
     emergencyContact: pickByRegex(text, /紧急联系人[:：]\s*([^\n]+)/),
-    emergencyPhone: pickByRegex(text, /紧急联系方式[:：]\s*([^\n]+)/)
+    emergencyPhone: pickByRegex(text, /紧急联系方式[:：]\s*([^\n]+)/),
+    skills: "",
+    advantages: "",
+    otherInfo: ""
   };
 
   const educationBlock = blocks.find((x) => /(教育经历|学历|学校|入学时间|毕业时间)/.test(x)) || text;
@@ -210,7 +272,14 @@ export function parseResumeText(rawText) {
 
   const expStart = text.search(/(项目经历|工作经历|实习经历)/);
   const expSlice = expStart >= 0 ? text.slice(expStart) : text;
-  const experiences = extractExperiences(expSlice);
+  const extracted = extractExperiences(expSlice);
+  const experiences = extracted.experiences;
+  const unique = (arr) => [...new Set((arr || []).map((x) => String(x || "").trim()).filter(Boolean))];
+  const mergeTags = (base, arr) => unique([...(String(base || "").split(/[,，/|\n]+/)), ...arr]).join(" / ").trim();
+  const mergeBullets = (base, arr) => unique([...(String(base || "").split(/\n+/)), ...arr]).join("\n").trim();
+  profile.skills = mergeTags(profile.skills, extracted.abilities.skills);
+  profile.advantages = mergeBullets(profile.advantages, extracted.abilities.advantages);
+  profile.otherInfo = mergeBullets(profile.otherInfo, extracted.abilities.other);
 
   return {
     profile: { ...profile, ...education },

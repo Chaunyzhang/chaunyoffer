@@ -59,6 +59,14 @@
   letter-spacing: 0.02em;
 }
 
+#resume-autofill-panel .raf-slogan {
+  margin-top: 4px;
+  font-size: 11px;
+  line-height: 1.35;
+  color: rgba(15, 45, 63, 0.92);
+  font-weight: 600;
+}
+
 #resume-autofill-panel .raf-badge {
   display: inline-flex;
   align-items: center;
@@ -189,7 +197,7 @@
     radial-gradient(circle at bottom right, rgba(96, 165, 250, 0.18), transparent 48%),
     linear-gradient(180deg, rgba(15, 23, 42, 0.12), rgba(2, 6, 23, 0.18));
   box-sizing: border-box;
-  scrollbar-gutter: stable;
+  scrollbar-gutter: stable both-edges;
 }
 
 #resume-autofill-panel .raf-list::-webkit-scrollbar {
@@ -347,6 +355,8 @@
   display: flex;
   flex-direction: column;
   gap: 14px;
+  width: 100%;
+  box-sizing: border-box;
 }
 
 #resume-autofill-panel .raf-edit-section {
@@ -354,6 +364,7 @@
   display: flex;
   flex-direction: column;
   gap: 10px;
+  width: 100%;
   padding: 14px;
   border: 1px solid rgba(255, 255, 255, 0.62);
   border-radius: 22px;
@@ -365,6 +376,7 @@
   backdrop-filter: blur(18px) saturate(130%);
   -webkit-backdrop-filter: blur(18px) saturate(130%);
   overflow: hidden;
+  box-sizing: border-box;
 }
 
 #resume-autofill-panel .raf-edit-view > .raf-edit-section:nth-child(3n + 1) {
@@ -386,6 +398,8 @@
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 8px;
+  width: 100%;
+  box-sizing: border-box;
 }
 
 #resume-autofill-panel .raf-edit-field {
@@ -467,7 +481,9 @@
   display: flex;
   flex-direction: column;
   gap: 8px;
+  width: 100%;
   padding: 8px 0 4px;
+  box-sizing: border-box;
 }
 
 #resume-autofill-panel .raf-inline-list,
@@ -475,6 +491,8 @@
   display: flex;
   flex-direction: column;
   gap: 8px;
+  width: 100%;
+  box-sizing: border-box;
 }
 
 #resume-autofill-panel .raf-inline-row,
@@ -483,6 +501,8 @@
   grid-template-columns: 1fr auto;
   gap: 8px;
   align-items: center;
+  width: 100%;
+  box-sizing: border-box;
 }
 
 #resume-autofill-panel .raf-tag-input {
