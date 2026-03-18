@@ -1,0 +1,39 @@
+﻿<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>chaunyoffer</title>
+  <style>
+    body { font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif; width: 380px; margin: 0; padding: 14px; color: #1f2937; background: #f3f9fd; }
+    .card { background: #fff; border-radius: 16px; padding: 12px; box-shadow: 0 14px 30px rgba(80,123,160,.12); border: 1px solid #d9edf8; }
+    h1 { margin: 0 0 6px; font-size: 17px; }
+    p { margin: 3px 0; font-size: 11px; color: #6b7280; line-height: 1.4; }
+    input[type='file'] { width: 100%; margin-top: 8px; }
+    button { border: 0; background: linear-gradient(to bottom, #7fd8ff 0%, #aeeaff 100%); color: #0f3550; padding: 8px 11px; border-radius: 10px; cursor: pointer; font-size: 12px; font-weight: 600; }
+    #status { margin-top: 8px; min-height: 16px; font-size: 12px; }
+    #preview { margin-top: 8px; max-height: 260px; overflow: auto; border: 1px solid #ddebf4; border-radius: 12px; background: #f9fcfe; padding: 8px; }
+    .item { padding: 6px 0 8px; border-bottom: 1px solid #e6eef4; font-size: 12px; }
+    .item:last-child { border-bottom: 0; }
+    .k { color: #5b6b78; font-weight: 700; font-size: 10px; margin-bottom: 3px; line-height: 1.2; }
+    .v { color: #243746; word-break: break-word; line-height: 1.4; background: #fff; border: 1px solid #e2edf5; border-radius: 9px; padding: 6px 9px; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>chaunyoffer</h1>
+    <p>导入 `.docx` 简历后，按模板结构整理字段，并在网页中打开悬浮面板进行填充。</p>
+    <input id="docxInput" type="file" accept=".docx" />
+    <div style="display:flex;gap:8px;margin-top:10px;">
+      <button id="openPanel">打开网页悬浮窗</button>
+      <button id="clearData" style="background:#e8f3fa;color:#436176;border:1px solid #d4e6f1;">清空数据</button>
+    </div>
+    <div id="status"></div>
+    <div id="preview"></div>
+  </div>
+
+  <script src="../vendor/jszip.min.js"></script>
+  <script src="../vendor/mammoth.browser.min.js"></script>
+  <script type="module" src="./popup.js"></script>
+</body>
+</html>

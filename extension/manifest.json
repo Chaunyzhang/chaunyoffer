@@ -1,0 +1,27 @@
+﻿{
+  "manifest_version": 3,
+  "name": "chaunyoffer",
+  "version": "0.1.1",
+  "description": "chaunyoffer：导入 Word 简历并按模板展示与填充",
+  "permissions": ["storage", "activeTab", "scripting", "clipboardWrite"],
+  "host_permissions": ["<all_urls>"],
+  "action": {
+    "default_title": "chaunyoffer"
+  },
+  "background": {
+    "service_worker": "src/background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["vendor/jszip.min.js", "vendor/mammoth.browser.min.js", "src/content.js"],
+      "css": ["src/content.css"],
+      "run_at": "document_idle"
+    }
+  ],
+  "icons": {
+    "16": "src/icons/icon16.png",
+    "48": "src/icons/icon48.png",
+    "128": "src/icons/icon128.png"
+  }
+}
