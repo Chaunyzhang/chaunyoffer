@@ -549,7 +549,7 @@
     });
 
     if (!form.children.length) {
-      root.innerHTML = "<div class='raf-empty'>点击顶部“导入简历”后，就会在这里看到预览与填充卡片。</div>";
+      root.innerHTML = "<div class='raf-empty'>切换到“编辑”后导入简历，这里会展示最终预览与填充卡片。</div>";
     } else {
       root.appendChild(form);
     }
@@ -564,11 +564,43 @@
   function renderBullets(form, mod, state, editable, root) { const items = state[mod.key] || []; if (!items.length) items.push(''); const section = document.createElement('section'); section.className = 'raf-edit-section raf-lite-section'; section.appendChild(sectionHead(mod.label, '添加一条', async () => { items.push(''); syncModules(editable, state); await persist(editable); renderCurrentView(root, { focusTarget: { kind: 'bullet', module: mod.key, index: items.length - 1 } }); })); const list = document.createElement('div'); list.className = 'raf-inline-list'; items.forEach((item, i) => { const row = document.createElement('div'); row.className = 'raf-inline-row'; row.dataset.rafKind = 'bullet'; row.dataset.rafModule = mod.key; row.dataset.rafIndex = String(i); const input = document.createElement('input'); input.type = 'text'; input.className = 'raf-edit-input'; input.value = item; input.placeholder = `请输入${mod.label}`; input.addEventListener('input', async (e) => { items[i] = e.target.value; syncModules(editable, state); await persist(editable); }); row.appendChild(input); row.appendChild(delBtn(async () => { items.splice(i, 1); syncModules(editable, state); await persist(editable); renderCurrentView(root, { preserveScroll: true }); })); list.appendChild(row); }); section.appendChild(list); form.appendChild(section); }
   function renderRecords(form, mod, state, editable, root) { const items = state[mod.key] || []; if (!items.length) items.push(Object.fromEntries(mod.fields.map((f) => [f.key, '']))); const section = document.createElement('section'); section.className = 'raf-edit-section raf-lite-section'; section.appendChild(sectionHead(mod.label, '添加一条', async () => { items.push(Object.fromEntries(mod.fields.map((f) => [f.key, '']))); syncModules(editable, state); await persist(editable); renderCurrentView(root, { focusTarget: { kind: 'record', module: mod.key, index: items.length - 1 } }); })); items.forEach((item, i) => { const entry = document.createElement('div'); entry.className = 'raf-edit-entry'; entry.dataset.rafKind = 'record'; entry.dataset.rafModule = mod.key; entry.dataset.rafIndex = String(i); const head = document.createElement('div'); head.className = 'raf-edit-entry-head'; const strong = document.createElement('strong'); strong.textContent = `${mod.label}${i + 1}`; head.appendChild(strong); head.appendChild(delBtn(async () => { items.splice(i, 1); syncModules(editable, state); await persist(editable); renderCurrentView(root, { preserveScroll: true }); })); entry.appendChild(head); const grid = document.createElement('div'); grid.className = 'raf-edit-grid'; mod.fields.forEach((field) => grid.appendChild(inputField(field, item[field.key], async (next) => { item[field.key] = next; syncModules(editable, state); await persist(editable); }))); entry.appendChild(grid); section.appendChild(entry); }); form.appendChild(section); }
   function renderExperiences(form, editable, root) { EXP_GROUPS.forEach((group) => { const items = editable.experiences[group.key] || []; if (!items.length) items.push(Object.fromEntries(group.fields.map((field) => [field.key, '']))); const section = document.createElement('section'); section.className = 'raf-edit-section raf-lite-section'; section.appendChild(sectionHead(group.label, '添加一条', async () => { items.push(Object.fromEntries(group.fields.map((field) => [field.key, '']))); await persist(editable); renderCurrentView(root, { focusTarget: { kind: 'experience', group: group.key, index: items.length - 1 } }); })); items.forEach((item, i) => { const entry = document.createElement('div'); entry.className = 'raf-edit-entry'; entry.dataset.rafKind = 'experience'; entry.dataset.rafGroup = group.key; entry.dataset.rafIndex = String(i); const head = document.createElement('div'); head.className = 'raf-edit-entry-head'; const strong = document.createElement('strong'); strong.textContent = `${group.label}${i + 1}`; head.appendChild(strong); head.appendChild(delBtn(async () => { const idx = items.indexOf(item); if (idx >= 0) items.splice(idx, 1); await persist(editable); renderCurrentView(root, { preserveScroll: true }); })); entry.appendChild(head); const grid = document.createElement('div'); grid.className = 'raf-edit-grid'; group.fields.forEach((field) => grid.appendChild(inputField(field, item[field.key], async (next) => { item[field.key] = next; await persist(editable); }))); entry.appendChild(grid); section.appendChild(entry); }); form.appendChild(section); }); }
+  function renderEditTools(form, root) {
+    const section = document.createElement('section');
+    section.className = 'raf-edit-section raf-edit-tools';
+    const row = document.createElement('div');
+    row.className = 'raf-edit-tools-row';
+    const importLabel = document.createElement('label');
+    importLabel.className = 'raf-glass-btn';
+    importLabel.innerHTML = '<span>导入简历</span>';
+    const fileInput = document.createElement('input');
+    fileInput.type = 'file';
+    fileInput.accept = '.docx';
+    fileInput.hidden = true;
+    fileInput.addEventListener('change', async () => {
+      await handleImport(fileInput.files?.[0]);
+      fileInput.value = '';
+    });
+    importLabel.appendChild(fileInput);
+    const clearBtn = document.createElement('button');
+    clearBtn.type = 'button';
+    clearBtn.className = 'raf-glass-btn';
+    clearBtn.textContent = '清空数据';
+    clearBtn.addEventListener('click', async () => {
+      await clearData();
+      renderCurrentView(root, { preserveScroll: true });
+    });
+    row.appendChild(importLabel);
+    row.appendChild(clearBtn);
+    section.appendChild(row);
+    form.appendChild(section);
+  }
   async function renderEditView(root) {
     const { editable } = await getState();
     const state = moduleState(editable);
     const form = document.createElement('div');
     form.className = 'raf-edit-view';
+
+    renderEditTools(form, root);
 
     const basicSection = document.createElement('section');
     basicSection.className = 'raf-edit-section raf-basic-section';
@@ -622,37 +654,34 @@
     panel.id = PANEL_ID;
     panel.style.left = '20px';
     panel.style.top = '90px';
-    panel.innerHTML = `<div class="raf-head"><div class="raf-brand"><strong>chauny简历助手</strong><div class="raf-slogan">相信我！你就是最牛逼的！——川页chauny。<br/>别忘了关注我昂哈哈哈。</div></div><div class="raf-actions"><label class="raf-pin"><input id="raf-pin" type="checkbox" checked /> 固定屏幕</label><button id="raf-close" class="raf-close" type="button">关闭</button></div></div><div class="raf-toolbar"><div class="raf-toolbar-main"><label class="raf-import"><input id="raf-file" type="file" accept=".docx" hidden /><span>导入简历</span></label><button id="raf-clear" class="raf-mini-btn" type="button">清空数据</button></div><div class="raf-view-switch"><button id="raf-preview-tab" class="raf-tab active" type="button">预览</button><button id="raf-edit-tab" class="raf-tab" type="button">编辑</button></div></div><div id="raf-list" class="raf-list"></div>`;
+    panel.innerHTML = `<div class="raf-head"><div class="raf-head-top"><div class="raf-brand"><strong>Chauny</strong><strong>后仰跳投</strong></div><div class="raf-actions"><div class="raf-mode-group"><button id="raf-preview-tab" class="raf-tab active" type="button">预览</button><button id="raf-edit-tab" class="raf-tab" type="button">编辑</button><button id="raf-pin-btn" class="raf-tab" type="button">固定</button><button id="raf-close" class="raf-tab raf-close-tab" type="button">关闭</button></div></div></div><div class="raf-head-note">朋友我祝你简历过过过！别忘了关注昂——川页Chauny</div></div><div id="raf-list" class="raf-list"></div>`;
     document.body.appendChild(panel);
 
     const listEl = panel.querySelector('#raf-list');
-    const pinEl = panel.querySelector('#raf-pin');
+    const pinBtn = panel.querySelector('#raf-pin-btn');
     const closeEl = panel.querySelector('#raf-close');
-    const fileEl = panel.querySelector('#raf-file');
-    const clearEl = panel.querySelector('#raf-clear');
     const previewTab = panel.querySelector('#raf-preview-tab');
     const editTab = panel.querySelector('#raf-edit-tab');
-    const toolbarMain = panel.querySelector('.raf-toolbar-main');
-
     const applyToolbarByView = () => {
       const isEdit = currentView === 'edit';
       previewTab.classList.toggle('active', !isEdit);
       editTab.classList.toggle('active', isEdit);
-      toolbarMain.style.display = isEdit ? 'flex' : 'none';
+      pinBtn.classList.toggle('active', !!pinned);
+      previewTab.setAttribute('aria-pressed', String(!isEdit));
+      editTab.setAttribute('aria-pressed', String(isEdit));
+      pinBtn.setAttribute('aria-pressed', String(!!pinned));
+      closeEl.setAttribute('aria-pressed', 'false');
     };
 
     const stored = await chrome.storage.local.get([PIN_KEY, POS_KEY, VIEW_KEY]);
     if (stored[POS_KEY]?.left) panel.style.left = stored[POS_KEY].left;
     if (stored[POS_KEY]?.top) panel.style.top = stored[POS_KEY].top;
-    pinEl.checked = stored[PIN_KEY] !== false;
+    pinned = stored[PIN_KEY] !== false;
     currentView = stored[VIEW_KEY] || 'preview';
     applyToolbarByView();
 
-    await applyPinState(panel, pinEl.checked);
+    await applyPinState(panel, pinned);
     await renderCurrentView(listEl);
-
-    fileEl.addEventListener('change', async () => { await handleImport(fileEl.files?.[0]); fileEl.value = ''; });
-    clearEl.addEventListener('click', clearData);
 
     previewTab.addEventListener('click', async () => {
       currentView = 'preview';
@@ -674,12 +703,16 @@
       }
     });
 
-    pinEl.addEventListener('change', async () => {
-      await applyPinState(panel, pinEl.checked);
-      toast(pinEl.checked ? '已固定在屏幕' : '已取消固定，可随页面滚动');
+    pinBtn.addEventListener('click', async () => {
+      await applyPinState(panel, !pinned);
+      applyToolbarByView();
+      toast(pinned ? '已固定在屏幕' : '已取消固定，可随页面滚动');
     });
     closeEl.addEventListener('click', (e) => { e.stopPropagation(); panelVisible = false; updatePanelVisibility(); });
     closeEl.addEventListener('mousedown', (e) => e.stopPropagation());
+    previewTab.addEventListener('mousedown', (e) => e.stopPropagation());
+    editTab.addEventListener('mousedown', (e) => e.stopPropagation());
+    pinBtn.addEventListener('mousedown', (e) => e.stopPropagation());
 
     const head = panel.querySelector('.raf-head');
     head.addEventListener('mousedown', (e) => {
