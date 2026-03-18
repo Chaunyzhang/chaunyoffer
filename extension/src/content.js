@@ -11,8 +11,11 @@
   const WIDTH_KEY = 'rafPanelWidth';
   const HEIGHT_KEY = 'rafPanelHeight';
   const PANEL_WIDTH_BASE = 410;
-  const PANEL_WIDTH_PERCENT_MIN = 80;
+  const PANEL_WIDTH_PERCENT_MIN = 85;
   const PANEL_WIDTH_PERCENT_MAX = 150;
+  const PANEL_HEIGHT_BASE = 680;
+  const PANEL_HEIGHT_PERCENT_MIN = 70;
+  const PANEL_HEIGHT_PERCENT_MAX = 170;
   const STORAGE_KEYS = ['resumeParsed', 'resumeFlattened', 'resumeEditable', 'resumeUpdatedAt'];
   const BASIC_FIELDS = [
     ['name','姓名','text'],['gender','性别','text'],['birthday','出生日期','date'],['city','所在城市','text'],['idType','证件类型','text'],['idNumber','证件号码','text'],
@@ -53,7 +56,7 @@
     { key:'otherInfo', label:'其他扩展字段', kind:'bullets' }
   ].map((m) => m.fields ? ({ ...m, fields: m.fields.map(([key,label,type]) => ({ key, label, type })) }) : m);
 
-  let panelVisible = false, pinned = true, currentView = 'preview', drag = null, lastActiveEditable = null, listRoot = null, panelBrightness = 100, panelOpacity = 0, panelWidthPercent = 100, panelHeight = 680;
+  let panelVisible = false, pinned = true, currentView = 'preview', drag = null, lastActiveEditable = null, listRoot = null, panelBrightness = 100, panelOpacity = 0, panelWidthPercent = 100, panelHeightPercent = 100;
   let renderNonce = 0;
   let skipStorageRenderCount = 0;
   let importDebug = [];
@@ -380,12 +383,26 @@
     if (numeric > 200) return Math.round((numeric / PANEL_WIDTH_BASE) * 100);
     return Math.round(numeric);
   }
-  function applyPanelSize(panel, widthPercent, height) {
+  function normalizeHeightPercent(value) {
+    const numeric = Number(value);
+    if (!numeric) return 100;
+    if (numeric > 300) return Math.round((numeric / PANEL_HEIGHT_BASE) * 100);
+    return Math.round(numeric);
+  }
+  function toUiPercent(value, min, max) {
+    const clamped = Math.max(min, Math.min(max, Number(value) || min));
+    return Math.round(((clamped - min) / (max - min)) * 100);
+  }
+  function fromUiPercent(value, min, max) {
+    const clamped = Math.max(0, Math.min(100, Number(value) || 0));
+    return Math.round(min + ((max - min) * clamped) / 100);
+  }
+  function applyPanelSize(panel, widthPercent, heightPercent) {
     panelWidthPercent = Math.max(PANEL_WIDTH_PERCENT_MIN, Math.min(PANEL_WIDTH_PERCENT_MAX, normalizeWidthPercent(widthPercent)));
-    panelHeight = Math.max(560, Math.min(900, Number(height) || 680));
+    panelHeightPercent = Math.max(PANEL_HEIGHT_PERCENT_MIN, Math.min(PANEL_HEIGHT_PERCENT_MAX, normalizeHeightPercent(heightPercent)));
     if (panel) {
       panel.style.setProperty('--raf-panel-width', `${Math.round((PANEL_WIDTH_BASE * panelWidthPercent) / 100)}px`);
-      panel.style.setProperty('--raf-panel-height', `${panelHeight}px`);
+      panel.style.setProperty('--raf-panel-height', `${Math.round((PANEL_HEIGHT_BASE * panelHeightPercent) / 100)}px`);
       requestAnimationFrame(() => syncPanelLayout(panel));
     }
   }
@@ -569,56 +586,94 @@
     const wrap = document.createElement('div');
     wrap.className = 'raf-settings-view';
 
+    const noteSection = document.createElement('section');
+    noteSection.className = 'raf-edit-section raf-settings-section raf-settings-note-section';
+    noteSection.appendChild(sectionHead('Chauny后仰跳投'));
+    const noteCard = document.createElement('div');
+    noteCard.className = 'raf-setting-card';
+    const noteMeta = document.createElement('div');
+    noteMeta.className = 'raf-setting-meta raf-setting-meta-centered';
+    noteMeta.innerHTML = `<strong>朋友我祝你简历过过过！</strong><span>别忘了关注昂——川页Chauny</span>`;
+    noteCard.appendChild(noteMeta);
+    noteSection.appendChild(noteCard);
+    wrap.appendChild(noteSection);
+
+    const toolsSection = document.createElement('section');
+    toolsSection.className = 'raf-edit-section raf-settings-section raf-settings-tools';
+    const toolsRow = document.createElement('div');
+    toolsRow.className = 'raf-edit-tools-row';
+
+    const importLabel = document.createElement('label');
+    importLabel.className = 'raf-glass-btn';
+    importLabel.innerHTML = '<span>导入简历</span>';
+    const fileInput = document.createElement('input');
+    fileInput.type = 'file';
+    fileInput.accept = '.docx';
+    fileInput.hidden = true;
+    fileInput.addEventListener('change', async () => {
+      await handleImport(fileInput.files?.[0]);
+      fileInput.value = '';
+    });
+    importLabel.appendChild(fileInput);
+
+    const clearBtn = document.createElement('button');
+    clearBtn.type = 'button';
+    clearBtn.className = 'raf-glass-btn';
+    clearBtn.textContent = '清空数据';
+    clearBtn.addEventListener('click', async () => {
+      await clearData();
+      if (listRoot) renderCurrentView(listRoot, { preserveScroll: true });
+    });
+
+    toolsRow.appendChild(importLabel);
+    toolsRow.appendChild(clearBtn);
+    toolsSection.appendChild(toolsRow);
+    wrap.appendChild(toolsSection);
+
     const panelSection = document.createElement('section');
     panelSection.className = 'raf-edit-section raf-settings-section';
     panelSection.appendChild(sectionHead('显示设置'));
 
-    const brightnessCard = document.createElement('div');
-    brightnessCard.className = 'raf-setting-card';
+    const brightnessRow = document.createElement('div');
+    brightnessRow.className = 'raf-setting-row';
 
     const settingMeta = document.createElement('div');
     settingMeta.className = 'raf-setting-meta';
-    settingMeta.innerHTML = `<strong>界面亮度</strong><span>调节整个插件的明暗强度，默认 100%</span>`;
-    brightnessCard.appendChild(settingMeta);
+    settingMeta.innerHTML = `<strong>界面亮度</strong>`;
+    brightnessRow.appendChild(settingMeta);
 
     const settingControl = document.createElement('div');
     settingControl.className = 'raf-setting-control';
 
     const slider = document.createElement('input');
     slider.type = 'range';
-    slider.min = '70';
-    slider.max = '130';
+    slider.min = '0';
+    slider.max = '100';
     slider.step = '1';
-    slider.value = String(panelBrightness);
+    slider.value = String(toUiPercent(panelBrightness, 70, 130));
     slider.className = 'raf-slider';
 
-    const value = document.createElement('div');
-    value.className = 'raf-setting-value';
-    value.textContent = `${panelBrightness}%`;
-
     slider.addEventListener('input', (e) => {
-      const next = Number(e.target.value);
+      const next = fromUiPercent(Number(e.target.value), 70, 130);
       applyPanelBrightness(document.getElementById(PANEL_ID), next);
-      value.textContent = `${panelBrightness}%`;
     });
 
     slider.addEventListener('change', async (e) => {
-      const next = Number(e.target.value);
+      const next = fromUiPercent(Number(e.target.value), 70, 130);
       applyPanelBrightness(document.getElementById(PANEL_ID), next);
       await chrome.storage.local.set({ [BRIGHTNESS_KEY]: panelBrightness });
     });
 
     settingControl.appendChild(slider);
-    settingControl.appendChild(value);
-    brightnessCard.appendChild(settingControl);
-    panelSection.appendChild(brightnessCard);
+    brightnessRow.appendChild(settingControl);
+    panelSection.appendChild(brightnessRow);
 
-    const opacityCard = document.createElement('div');
-    opacityCard.className = 'raf-setting-card';
+    const opacityRow = document.createElement('div');
+    opacityRow.className = 'raf-setting-row';
     const opacityMeta = document.createElement('div');
     opacityMeta.className = 'raf-setting-meta';
-    opacityMeta.innerHTML = `<strong>背景不透明度</strong><span>0 保持当前默认玻璃感，100 为底板完全不透明</span>`;
-    opacityCard.appendChild(opacityMeta);
+    opacityMeta.innerHTML = `<strong>背景不透明度</strong>`;
+    opacityRow.appendChild(opacityMeta);
     const opacityControl = document.createElement('div');
     opacityControl.className = 'raf-setting-control';
     const opacitySlider = document.createElement('input');
@@ -628,13 +683,9 @@
     opacitySlider.step = '1';
     opacitySlider.value = String(panelOpacity);
     opacitySlider.className = 'raf-slider';
-    const opacityValue = document.createElement('div');
-    opacityValue.className = 'raf-setting-value';
-    opacityValue.textContent = `${panelOpacity}%`;
     opacitySlider.addEventListener('input', (e) => {
       const next = Number(e.target.value);
       applyPanelOpacity(document.getElementById(PANEL_ID), next);
-      opacityValue.textContent = `${panelOpacity}%`;
     });
     opacitySlider.addEventListener('change', async (e) => {
       const next = Number(e.target.value);
@@ -642,80 +693,64 @@
       await chrome.storage.local.set({ [OPACITY_KEY]: panelOpacity });
     });
     opacityControl.appendChild(opacitySlider);
-    opacityControl.appendChild(opacityValue);
-    opacityCard.appendChild(opacityControl);
-    panelSection.appendChild(opacityCard);
+    opacityRow.appendChild(opacityControl);
+    panelSection.appendChild(opacityRow);
 
-    const widthCard = document.createElement('div');
-    widthCard.className = 'raf-setting-card';
+    const widthRow = document.createElement('div');
+    widthRow.className = 'raf-setting-row';
     const widthMeta = document.createElement('div');
     widthMeta.className = 'raf-setting-meta';
-    widthMeta.innerHTML = `<strong>面板宽度</strong><span>以 410px 为 100%，支持缩到 80%，也可继续放宽</span>`;
-    widthCard.appendChild(widthMeta);
+    widthMeta.innerHTML = `<strong>面板宽度</strong>`;
+    widthRow.appendChild(widthMeta);
     const widthControl = document.createElement('div');
     widthControl.className = 'raf-setting-control';
     const widthSlider = document.createElement('input');
     widthSlider.type = 'range';
-    widthSlider.min = String(PANEL_WIDTH_PERCENT_MIN);
-    widthSlider.max = String(PANEL_WIDTH_PERCENT_MAX);
+    widthSlider.min = '0';
+    widthSlider.max = '100';
     widthSlider.step = '1';
-    widthSlider.value = String(panelWidthPercent);
+    widthSlider.value = String(toUiPercent(panelWidthPercent, PANEL_WIDTH_PERCENT_MIN, PANEL_WIDTH_PERCENT_MAX));
     widthSlider.className = 'raf-slider';
-    const widthValue = document.createElement('div');
-    widthValue.className = 'raf-setting-value';
-    widthValue.textContent = `${panelWidthPercent}%`;
     widthSlider.addEventListener('input', (e) => {
-      const next = Number(e.target.value);
-      applyPanelSize(document.getElementById(PANEL_ID), next, panelHeight);
-      widthValue.textContent = `${panelWidthPercent}%`;
+      const next = fromUiPercent(Number(e.target.value), PANEL_WIDTH_PERCENT_MIN, PANEL_WIDTH_PERCENT_MAX);
+      applyPanelSize(document.getElementById(PANEL_ID), next, panelHeightPercent);
     });
     widthSlider.addEventListener('change', async (e) => {
-      const next = Number(e.target.value);
-      applyPanelSize(document.getElementById(PANEL_ID), next, panelHeight);
+      const next = fromUiPercent(Number(e.target.value), PANEL_WIDTH_PERCENT_MIN, PANEL_WIDTH_PERCENT_MAX);
+      applyPanelSize(document.getElementById(PANEL_ID), next, panelHeightPercent);
       await chrome.storage.local.set({ [WIDTH_KEY]: panelWidthPercent });
     });
     widthControl.appendChild(widthSlider);
-    widthControl.appendChild(widthValue);
-    widthCard.appendChild(widthControl);
-    panelSection.appendChild(widthCard);
+    widthRow.appendChild(widthControl);
+    panelSection.appendChild(widthRow);
 
-    const heightCard = document.createElement('div');
-    heightCard.className = 'raf-setting-card';
+    const heightRow = document.createElement('div');
+    heightRow.className = 'raf-setting-row';
     const heightMeta = document.createElement('div');
     heightMeta.className = 'raf-setting-meta';
-    heightMeta.innerHTML = `<strong>面板高度</strong><span>调节插件上下高度，默认 680px</span>`;
-    heightCard.appendChild(heightMeta);
+    heightMeta.innerHTML = `<strong>面板高度</strong>`;
+    heightRow.appendChild(heightMeta);
     const heightControl = document.createElement('div');
     heightControl.className = 'raf-setting-control';
     const heightSlider = document.createElement('input');
     heightSlider.type = 'range';
-    heightSlider.min = '560';
-    heightSlider.max = '900';
-    heightSlider.step = '4';
-    heightSlider.value = String(panelHeight);
+    heightSlider.min = '0';
+    heightSlider.max = '100';
+    heightSlider.step = '1';
+    heightSlider.value = String(toUiPercent(panelHeightPercent, PANEL_HEIGHT_PERCENT_MIN, PANEL_HEIGHT_PERCENT_MAX));
     heightSlider.className = 'raf-slider';
-    const heightValue = document.createElement('div');
-    heightValue.className = 'raf-setting-value';
-    heightValue.textContent = `${panelHeight}px`;
     heightSlider.addEventListener('input', (e) => {
-      const next = Number(e.target.value);
+      const next = fromUiPercent(Number(e.target.value), PANEL_HEIGHT_PERCENT_MIN, PANEL_HEIGHT_PERCENT_MAX);
       applyPanelSize(document.getElementById(PANEL_ID), panelWidthPercent, next);
-      heightValue.textContent = `${panelHeight}px`;
     });
     heightSlider.addEventListener('change', async (e) => {
-      const next = Number(e.target.value);
+      const next = fromUiPercent(Number(e.target.value), PANEL_HEIGHT_PERCENT_MIN, PANEL_HEIGHT_PERCENT_MAX);
       applyPanelSize(document.getElementById(PANEL_ID), panelWidthPercent, next);
-      await chrome.storage.local.set({ [HEIGHT_KEY]: panelHeight });
+      await chrome.storage.local.set({ [HEIGHT_KEY]: panelHeightPercent });
     });
     heightControl.appendChild(heightSlider);
-    heightControl.appendChild(heightValue);
-    heightCard.appendChild(heightControl);
-    panelSection.appendChild(heightCard);
-
-    const note = document.createElement('div');
-    note.className = 'raf-settings-note';
-    note.textContent = '设置会自动保存，重新打开插件后继续生效。';
-    panelSection.appendChild(note);
+    heightRow.appendChild(heightControl);
+    panelSection.appendChild(heightRow);
 
     wrap.appendChild(panelSection);
     root.appendChild(wrap);
@@ -883,8 +918,6 @@
     const form = document.createElement('div');
     form.className = 'raf-edit-view';
 
-    renderEditTools(form, hostRoot);
-
     const basicSection = document.createElement('section');
     basicSection.className = 'raf-edit-section raf-basic-section';
     basicSection.appendChild(sectionHead('基础信息'));
@@ -936,7 +969,7 @@
       });
     }
   }
-  async function savePanelState(panel) { await chrome.storage.local.set({ [PIN_KEY]: pinned, [POS_KEY]: { left: panel.style.left, top: panel.style.top }, [VIEW_KEY]: currentView, [BRIGHTNESS_KEY]: panelBrightness, [OPACITY_KEY]: panelOpacity, [WIDTH_KEY]: panelWidthPercent, [HEIGHT_KEY]: panelHeight }); }
+  async function savePanelState(panel) { await chrome.storage.local.set({ [PIN_KEY]: pinned, [POS_KEY]: { left: panel.style.left, top: panel.style.top }, [VIEW_KEY]: currentView, [BRIGHTNESS_KEY]: panelBrightness, [OPACITY_KEY]: panelOpacity, [WIDTH_KEY]: panelWidthPercent, [HEIGHT_KEY]: panelHeightPercent }); }
   async function applyPinState(panel, checked) { pinned = checked; panel.style.position = pinned ? 'fixed' : 'absolute'; if (!pinned) panel.style.top = `${window.scrollY + 90}px`; await savePanelState(panel); }
   async function ensurePanel() {
     let panel = document.getElementById(PANEL_ID);
@@ -945,10 +978,11 @@
     panel.id = PANEL_ID;
     panel.style.left = '20px';
     panel.style.top = '90px';
-    panel.innerHTML = `<div class="raf-head"><div class="raf-head-top"><div class="raf-brand"><strong>Chauny</strong><strong>后仰跳投</strong></div><div class="raf-actions"><div class="raf-mode-group"><button id="raf-settings-tab" class="raf-tab" type="button">设置</button><button id="raf-preview-tab" class="raf-tab active" type="button">预览</button><button id="raf-edit-tab" class="raf-tab" type="button">编辑</button><button id="raf-pin-btn" class="raf-tab" type="button">固定</button><button id="raf-close" class="raf-tab raf-close-tab" type="button">关闭</button></div></div></div><div class="raf-head-note">朋友我祝你简历过过过！别忘了关注昂——川页Chauny</div></div><div id="raf-list" class="raf-list"></div>`;
+    panel.innerHTML = `<div class="raf-head"><div class="raf-head-top"><div class="raf-actions"><div class="raf-mode-group"><button id="raf-preview-tab" class="raf-tab active" type="button">预览</button><button id="raf-edit-tab" class="raf-tab" type="button">编辑</button><button id="raf-settings-tab" class="raf-tab" type="button">设置</button><button id="raf-pin-btn" class="raf-tab" type="button">固定</button><button id="raf-close" class="raf-tab raf-close-tab" type="button">关闭</button></div></div></div></div><div class="raf-drag-blur" aria-hidden="true"></div><div id="raf-list" class="raf-list"></div>`;
     document.body.appendChild(panel);
 
     const listEl = panel.querySelector('#raf-list');
+    const dragBlur = panel.querySelector('.raf-drag-blur');
     const settingsTab = panel.querySelector('#raf-settings-tab');
     const pinBtn = panel.querySelector('#raf-pin-btn');
     const closeEl = panel.querySelector('#raf-close');
@@ -975,7 +1009,7 @@
     currentView = stored[VIEW_KEY] || 'preview';
     applyPanelBrightness(panel, stored[BRIGHTNESS_KEY] ?? 100);
     applyPanelOpacity(panel, stored[OPACITY_KEY] ?? 0);
-    applyPanelSize(panel, stored[WIDTH_KEY] ?? PANEL_WIDTH_PERCENT_MIN, stored[HEIGHT_KEY] ?? 680);
+    applyPanelSize(panel, stored[WIDTH_KEY] ?? 100, stored[HEIGHT_KEY] ?? 100);
     syncPanelLayout(panel);
     applyToolbarByView();
 
@@ -1026,11 +1060,7 @@
     editTab.addEventListener('mousedown', (e) => e.stopPropagation());
     pinBtn.addEventListener('mousedown', (e) => e.stopPropagation());
 
-    const head = panel.querySelector('.raf-head');
-    head.addEventListener('mousedown', (e) => {
-      const target = e.target;
-      if (!(target instanceof HTMLElement)) return;
-      if (target.closest('button, input, textarea, label, a, .raf-actions, .raf-mode-group')) return;
+    dragBlur.addEventListener('mousedown', (e) => {
       drag = { x: e.clientX, y: e.clientY, left: panel.offsetLeft, top: panel.offsetTop };
       e.preventDefault();
     });

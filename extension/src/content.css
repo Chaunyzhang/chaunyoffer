@@ -27,8 +27,8 @@
   --raf-surface-opacity-level: 0;
   --raf-panel-width: 410px;
   --raf-panel-height: 680px;
-  --raf-head-height: 98px;
-  --raf-list-overlap: 98px;
+  --raf-head-height: 62px;
+  --raf-drag-height: 120px;
   --raf-list-bottom-pad: 14px;
   position: fixed;
   z-index: 2147483647;
@@ -47,32 +47,46 @@
 }
 
 #resume-autofill-panel .raf-head {
-  position: relative;
-  z-index: 3;
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  right: 12px;
+  z-index: 4;
   display: flex;
-  flex-direction: column;
-  justify-content: flex-start;
-  align-items: stretch;
-  gap: 10px;
-  padding: 12px 14px;
-  background: var(--raf-head-bg);
+  justify-content: center;
+  align-items: center;
+  padding: 0;
+  background: transparent;
   color: var(--raf-head-fg);
   cursor: move;
-  border-bottom: 0;
-  backdrop-filter: blur(24px) saturate(160%);
-  -webkit-backdrop-filter: blur(24px) saturate(160%);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.86);
-  overflow: hidden;
+  pointer-events: none;
 }
 
-#resume-autofill-panel .raf-head::before {
+#resume-autofill-panel .raf-drag-blur {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: var(--raf-drag-height);
+  z-index: 2;
+  pointer-events: auto;
+  cursor: move;
+  cursor: all-scroll;
+  background: transparent;
+}
+
+#resume-autofill-panel .raf-drag-blur::before {
   content: "";
   position: absolute;
   inset: 0;
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.26) 0%, rgba(255, 255, 255, 0.14) 32%, rgba(255, 255, 255, 0.03) 100%),
-    radial-gradient(circle at top left, rgba(255, 255, 255, 0.2), transparent 42%);
+  background: rgba(20, 28, 38, 0.02);
+  backdrop-filter: blur(10000px) brightness(0.72) saturate(0.72) contrast(0.86);
+  -webkit-backdrop-filter: blur(10000px) brightness(0.72) saturate(0.72) contrast(0.86);
+  mask-image: linear-gradient(180deg, rgba(0, 0, 0, 1) 0%, rgba(0, 0, 0, 0) 100%);
+  -webkit-mask-image: linear-gradient(180deg, rgba(0, 0, 0, 1) 0%, rgba(0, 0, 0, 0) 100%);
+  will-change: backdrop-filter, -webkit-backdrop-filter;
+  transform: translateZ(0);
+  backface-visibility: hidden;
   pointer-events: none;
 }
 
@@ -83,34 +97,14 @@
 
 #resume-autofill-panel .raf-head-top {
   display: flex;
-  justify-content: space-between;
+  justify-content: center;
   align-items: center;
-  gap: 10px;
+  gap: 0;
+  width: 100%;
 }
 
 #resume-autofill-panel .raf-brand {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  min-width: 0;
-}
-
-#resume-autofill-panel .raf-brand strong {
-  font-size: 20px;
-  font-weight: 800;
-  line-height: 1;
-  letter-spacing: 0.02em;
-}
-
-#resume-autofill-panel .raf-head-note {
-  margin-top: 0;
-  font-size: 11px;
-  line-height: 1.35;
-  color: rgba(15, 45, 63, 0.92);
-  font-weight: 600;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  display: none;
 }
 
 #resume-autofill-panel .raf-badge {
@@ -132,20 +126,32 @@
   gap: 6px;
   flex-shrink: 0;
   white-space: nowrap;
+  pointer-events: auto;
 }
 
 #resume-autofill-panel .raf-mode-group {
+  position: relative;
   display: inline-flex;
   align-items: center;
   gap: 6px;
   flex-wrap: nowrap;
-  padding: 4px;
-  border-radius: 14px;
-  border: 1px solid rgba(255, 255, 255, 0.36);
-  background: rgba(240, 248, 255, 0.42);
-  box-shadow: 0 8px 18px rgba(32, 78, 111, 0.18), inset 0 1px 0 rgba(255, 255, 255, 0.72);
-  backdrop-filter: blur(10px) saturate(130%);
-  -webkit-backdrop-filter: blur(10px) saturate(130%);
+  padding: 7px;
+  border-radius: 20px;
+  border: 1px solid rgba(180, 203, 220, 0.18);
+  background: rgba(121, 147, 170, 0.18);
+  box-shadow: none;
+  backdrop-filter: blur(30px) saturate(180%);
+  -webkit-backdrop-filter: blur(30px) saturate(180%);
+  overflow: hidden;
+}
+
+#resume-autofill-panel .raf-mode-group::before {
+  content: none;
+}
+
+#resume-autofill-panel .raf-mode-group > * {
+  position: relative;
+  z-index: 1;
 }
 
 #resume-autofill-panel .raf-pin {
@@ -221,16 +227,20 @@
 #resume-autofill-panel .raf-mini-btn,
 #resume-autofill-panel .raf-tab,
 #resume-autofill-panel .raf-link-btn {
-  border: 1px solid rgba(82, 184, 235, 0.16);
-  background: rgba(255, 255, 255, 0.92);
-  color: #24506a;
+  border: 1px solid rgba(160, 198, 225, 0.42);
+  background: rgba(245, 251, 255, 0.24);
+  color: rgba(24, 56, 76, 0.72);
   border-radius: 999px;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 600;
   cursor: pointer;
-  height: 30px;
-  line-height: 28px;
+  height: 33px;
+  line-height: 31px;
   box-sizing: border-box;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.28);
+  backdrop-filter: blur(10px) saturate(130%);
+  -webkit-backdrop-filter: blur(10px) saturate(130%);
+  transition: background 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease, color 0.18s ease, transform 0.18s ease;
 }
 
 #resume-autofill-panel .raf-import,
@@ -246,14 +256,28 @@
   white-space: nowrap;
 }
 
+#resume-autofill-panel .raf-mini-btn:hover,
+#resume-autofill-panel .raf-link-btn:hover {
+  background: rgba(248, 253, 255, 0.66);
+  border-color: rgba(129, 186, 220, 0.72);
+  color: #133e5a;
+  box-shadow: 0 8px 16px rgba(84, 146, 184, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.72);
+}
+
+#resume-autofill-panel .raf-mini-btn:active,
+#resume-autofill-panel .raf-link-btn:active {
+  transform: translateY(1px);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.42);
+}
+
 #resume-autofill-panel .raf-tab.active {
   background: linear-gradient(180deg, rgba(191, 219, 234, 0.95) 0%, rgba(171, 205, 223, 0.95) 100%);
   color: #1e4359;
 }
 
 #resume-autofill-panel .raf-mode-group .raf-tab {
-  min-width: 50px;
-  width: 50px;
+  min-width: 55px;
+  width: 55px;
   padding: 0;
   border-color: rgba(160, 198, 225, 0.42);
   background: rgba(245, 251, 255, 0.24);
@@ -263,13 +287,13 @@
 }
 
 #resume-autofill-panel .raf-mode-group #raf-settings-tab {
-  min-width: 56px;
-  width: 56px;
+  min-width: 62px;
+  width: 62px;
 }
 
 #resume-autofill-panel .raf-mode-group .raf-close-tab {
-  min-width: 50px;
-  width: 50px;
+  min-width: 55px;
+  width: 55px;
 }
 
 #resume-autofill-panel .raf-mode-group .raf-tab:hover {
@@ -284,15 +308,13 @@
 }
 
 #resume-autofill-panel .raf-mode-group .raf-tab.active {
-  background: linear-gradient(180deg, rgba(219, 242, 255, 0.98) 0%, rgba(178, 220, 247, 0.96) 100%);
-  border-color: rgba(84, 162, 208, 0.98);
-  color: #0d3550;
+  background: linear-gradient(180deg, rgba(225, 244, 255, 0.92) 0%, rgba(198, 229, 247, 0.9) 100%);
+  border-color: rgba(198, 229, 247, 0.9);
+  color: #174764;
   box-shadow:
-    0 12px 22px rgba(48, 121, 165, 0.34),
-    inset 0 1px 0 rgba(255, 255, 255, 0.95),
-    0 0 0 1px rgba(185, 230, 255, 0.96),
-    0 0 0 4px rgba(108, 191, 239, 0.3);
-  font-weight: 700;
+    0 6px 14px rgba(66, 134, 176, 0.18),
+    inset 0 1px 0 rgba(255, 255, 255, 0.86);
+  font-weight: 600;
 }
 
 #resume-autofill-panel .raf-mode-group .raf-close-tab.active {
@@ -302,12 +324,12 @@
 }
 
 #resume-autofill-panel .raf-list {
-  height: calc(var(--raf-panel-height) - var(--raf-head-height) + var(--raf-list-overlap));
+  height: var(--raf-panel-height);
   overflow: auto;
   position: relative;
   z-index: 1;
-  margin-top: calc(var(--raf-list-overlap) * -1);
-  padding: calc(var(--raf-list-overlap) + 14px) 14px var(--raf-list-bottom-pad);
+  margin-top: 0;
+  padding: calc(var(--raf-head-height) + 18px) 14px var(--raf-list-bottom-pad);
   background:
     radial-gradient(circle at top left, rgba(56, 189, 248, calc(0.22 + 0.78 * var(--raf-surface-opacity-level))), transparent 40%),
     radial-gradient(circle at bottom right, rgba(96, 165, 250, calc(0.18 + 0.82 * var(--raf-surface-opacity-level))), transparent 48%),
@@ -329,6 +351,23 @@
   gap: 14px;
 }
 
+#resume-autofill-panel .raf-settings-tools {
+  padding: 14px;
+  gap: 0;
+}
+
+#resume-autofill-panel .raf-settings-section:has(.raf-setting-row) {
+  gap: 18px;
+}
+
+#resume-autofill-panel .raf-settings-note-section .raf-module-head {
+  justify-content: center;
+}
+
+#resume-autofill-panel .raf-settings-note-section .raf-module-title {
+  text-align: center;
+}
+
 #resume-autofill-panel .raf-setting-card {
   display: flex;
   flex-direction: column;
@@ -336,8 +375,14 @@
   padding: 14px;
   border: 1px solid rgba(255, 255, 255, 0.58);
   border-radius: 18px;
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.54), rgba(232, 243, 250, 0.34));
+  background: rgba(255, 255, 255, 0.94);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.72);
+}
+
+#resume-autofill-panel .raf-setting-row {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
 }
 
 #resume-autofill-panel .raf-setting-meta {
@@ -347,14 +392,19 @@
   color: #20455e;
 }
 
+#resume-autofill-panel .raf-setting-meta-centered {
+  align-items: center;
+  text-align: center;
+}
+
 #resume-autofill-panel .raf-setting-meta strong {
-  font-size: 14px;
+  font-size: 16px;
   font-weight: 700;
 }
 
 #resume-autofill-panel .raf-setting-meta span,
 #resume-autofill-panel .raf-settings-note {
-  font-size: 11px;
+  font-size: 13px;
   line-height: 1.5;
   color: rgba(28, 67, 92, 0.76);
 }
@@ -404,7 +454,7 @@
   border-radius: 999px;
   background: rgba(244, 251, 255, 0.62);
   color: #1d425a;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 700;
   line-height: 30px;
   text-align: center;
@@ -521,7 +571,7 @@
 #resume-autofill-panel .raf-sub-item .v {
   display: block;
   color: var(--raf-text);
-  font-size: 13px;
+  font-size: 15px;
   line-height: 1.4;
   word-break: break-word;
   white-space: pre-wrap;
@@ -530,7 +580,7 @@
 #resume-autofill-panel .raf-card-value {
   display: block;
   color: var(--raf-text);
-  font-size: 13px;
+  font-size: 15px;
   line-height: 1.4;
   word-break: break-word;
   white-space: pre-wrap;
@@ -547,7 +597,7 @@
   border-radius: 14px;
   background: rgba(255, 255, 255, 0.66);
   color: var(--raf-muted);
-  font-size: 12px;
+  font-size: 14px;
   text-align: center;
 }
 
@@ -557,7 +607,7 @@
   gap: 7px;
   margin: 12px 2px 6px;
   color: var(--raf-text);
-  font-size: 13px;
+  font-size: 15px;
   font-weight: 700;
   line-height: 1.2;
 }
@@ -608,7 +658,7 @@
 
 #resume-autofill-panel .raf-field-title {
   color: #5b6b78;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 700;
   letter-spacing: 0.02em;
   text-transform: none;
@@ -636,29 +686,42 @@
   box-sizing: border-box;
 }
 
-#resume-autofill-panel .raf-glass-btn {
+#resume-autofill-panel .raf-settings-tools .raf-edit-tools-row {
+  align-items: stretch;
+}
+
+#resume-autofill-panel .raf-settings-tools .raf-glass-btn {
   width: 100%;
-  height: 40px;
-  border-radius: 14px;
-  border: 1px solid rgba(206, 226, 241, 0.86);
-  background: linear-gradient(180deg, rgba(238, 247, 255, 0.66), rgba(223, 240, 252, 0.52));
-  box-shadow: 0 10px 24px rgba(104, 161, 195, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.75);
-  color: #1d425a;
-  font-size: 13px;
-  font-weight: 700;
-  line-height: 38px;
+  min-width: 55px;
+  height: 33px;
+  line-height: 31px;
+  padding: 0 14px;
+  border-radius: 999px;
+  border: 1px solid rgba(160, 198, 225, 0.42);
+  background: rgba(245, 251, 255, 0.24);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.28);
+  color: rgba(24, 56, 76, 0.72);
+  font-size: 12px;
+  font-weight: 600;
   text-align: center;
   cursor: pointer;
   box-sizing: border-box;
-  backdrop-filter: blur(14px) saturate(135%);
-  -webkit-backdrop-filter: blur(14px) saturate(135%);
-  transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease;
+  backdrop-filter: blur(10px) saturate(130%);
+  -webkit-backdrop-filter: blur(10px) saturate(130%);
+  transition: background 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease, color 0.18s ease, transform 0.18s ease;
+  white-space: nowrap;
 }
 
-#resume-autofill-panel .raf-glass-btn:hover {
-  transform: translateY(-1px);
+#resume-autofill-panel .raf-settings-tools .raf-glass-btn:hover {
+  background: rgba(248, 253, 255, 0.66);
   border-color: rgba(129, 186, 220, 0.72);
-  box-shadow: 0 12px 26px rgba(84, 146, 184, 0.24), inset 0 1px 0 rgba(255, 255, 255, 0.82);
+  color: #133e5a;
+  box-shadow: 0 8px 16px rgba(84, 146, 184, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.72);
+}
+
+#resume-autofill-panel .raf-settings-tools .raf-glass-btn:active {
+  transform: translateY(1px);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.42);
 }
 
 #resume-autofill-panel .raf-edit-section {
@@ -668,40 +731,37 @@
   gap: 10px;
   width: 100%;
   padding: 14px;
-  border: 1px solid rgba(255, 255, 255, 0.62);
+  border: 1px solid rgba(255, 255, 255, 0.52);
   border-radius: 22px;
   background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.62), rgba(238, 248, 255, 0.42));
+    linear-gradient(180deg, rgba(255, 255, 255, 0.78), rgba(238, 248, 255, 0.62));
   box-shadow:
     0 10px 30px rgba(120, 160, 190, 0.2),
     inset 0 1px 0 rgba(255, 255, 255, 0.78);
-  backdrop-filter: blur(18px) saturate(130%);
-  -webkit-backdrop-filter: blur(18px) saturate(130%);
   overflow: hidden;
   box-sizing: border-box;
-  background-clip: padding-box;
-  transform: translateZ(0);
-  backface-visibility: hidden;
+  background-clip: border-box;
+  isolation: isolate;
 }
 
 #resume-autofill-panel .raf-edit-view > .raf-edit-section:nth-child(3n + 1) {
   background:
-    linear-gradient(180deg, rgba(238, 248, 255, 0.72), rgba(227, 241, 250, 0.48));
+    linear-gradient(180deg, rgba(238, 248, 255, 0.82), rgba(227, 241, 250, 0.62));
 }
 
 #resume-autofill-panel .raf-edit-view > .raf-edit-section:nth-child(3n + 2) {
   background:
-    linear-gradient(180deg, rgba(245, 246, 255, 0.72), rgba(234, 236, 248, 0.5));
+    linear-gradient(180deg, rgba(245, 246, 255, 0.82), rgba(234, 236, 248, 0.64));
 }
 
 #resume-autofill-panel .raf-edit-view > .raf-edit-section:nth-child(3n) {
   background:
-    linear-gradient(180deg, rgba(246, 252, 247, 0.72), rgba(236, 245, 239, 0.5));
+    linear-gradient(180deg, rgba(246, 252, 247, 0.82), rgba(236, 245, 239, 0.64));
 }
 
 #resume-autofill-panel .raf-edit-grid {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
   gap: 8px;
   width: 100%;
   box-sizing: border-box;
@@ -723,12 +783,21 @@
   border-radius: 14px;
   background: rgba(255, 255, 255, 0.86);
   color: var(--raf-text);
-  font-size: 13px;
+  font-size: 15px;
   line-height: 1.4;
   padding: 10px 12px;
   resize: none;
   min-height: 40px;
   box-sizing: border-box;
+}
+
+#resume-autofill-panel .raf-edit-input:focus,
+#resume-autofill-panel .raf-edit-input:focus-visible,
+#resume-autofill-panel .raf-tag-input:focus,
+#resume-autofill-panel .raf-tag-input:focus-visible {
+  outline: none;
+  border-color: rgba(135, 197, 233, 0.9);
+  box-shadow: 0 0 0 2px rgba(135, 197, 233, 0.2);
 }
 
 #resume-autofill-panel .raf-textarea-shell {
@@ -810,14 +879,25 @@
 }
 
 #resume-autofill-panel .raf-link-btn {
-  padding: 0 10px;
-  min-width: 52px;
+  padding: 0 11px;
+  min-width: 55px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  line-height: 1;
-  background: rgba(255, 244, 244, 0.92);
-  color: #a63b3b;
+  line-height: 31px;
+  border-color: rgba(226, 156, 156, 0.42);
+  background: rgba(255, 241, 241, 0.24);
+  color: rgba(141, 38, 38, 0.8);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.26);
+  backdrop-filter: blur(10px) saturate(130%);
+  -webkit-backdrop-filter: blur(10px) saturate(130%);
+}
+
+#resume-autofill-panel .raf-link-btn:hover {
+  background: rgba(255, 245, 245, 0.66);
+  border-color: rgba(220, 129, 129, 0.72);
+  color: #8f2d2d;
+  box-shadow: 0 8px 16px rgba(176, 84, 84, 0.18), inset 0 1px 0 rgba(255, 255, 255, 0.7);
 }
 
 #resume-autofill-panel .raf-module-head,
@@ -829,14 +909,14 @@
 }
 
 #resume-autofill-panel .raf-module-title {
-  font-size: 15px;
+  font-size: 17px;
   font-weight: 700;
   color: #1d425a;
   letter-spacing: 0.01em;
 }
 
 #resume-autofill-panel .raf-edit-entry-head strong {
-  font-size: 14px;
+  font-size: 16px;
   color: #1f3f57;
 }
 
@@ -874,7 +954,7 @@
   border-radius: 12px;
   background: rgba(255, 255, 255, 0.86);
   color: var(--raf-text);
-  font-size: 13px;
+  font-size: 15px;
   line-height: 1.4;
   padding: 9px 12px;
   box-sizing: border-box;
@@ -888,7 +968,7 @@
   background: rgba(255, 255, 255, 0.84);
   background-clip: padding-box;
   color: var(--raf-text);
-  font-size: 13px;
+  font-size: 15px;
   line-height: 1.4;
   padding: 10px 12px;
   text-align: left;
@@ -900,14 +980,11 @@
   overflow: hidden;
   -webkit-appearance: none;
   appearance: none;
-  transform: translateZ(0);
-  backface-visibility: hidden;
 }
 
 #resume-autofill-panel .raf-preview-value:hover {
   border-color: rgba(82, 184, 235, 0.45);
   box-shadow: 0 8px 20px rgba(82, 184, 235, 0.12);
-  transform: translateY(-1px);
 }
 
 #resume-autofill-panel .raf-inline-row.single {
