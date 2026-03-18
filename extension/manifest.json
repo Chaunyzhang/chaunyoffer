@@ -14,6 +14,8 @@
   "content_scripts": [
     {
       "matches": ["<all_urls>"],
+      "all_frames": true,
+      "match_about_blank": true,
       "js": ["vendor/jszip.min.js", "vendor/mammoth.browser.min.js", "src/content.js"],
       "css": ["src/content.css"],
       "run_at": "document_idle"

@@ -6,6 +6,13 @@
   const POS_KEY = 'rafPanelPosition';
   const PIN_KEY = 'rafPanelPinned';
   const VIEW_KEY = 'rafPanelView';
+  const BRIGHTNESS_KEY = 'rafPanelBrightness';
+  const OPACITY_KEY = 'rafPanelOpacity';
+  const WIDTH_KEY = 'rafPanelWidth';
+  const HEIGHT_KEY = 'rafPanelHeight';
+  const PANEL_WIDTH_BASE = 410;
+  const PANEL_WIDTH_PERCENT_MIN = 80;
+  const PANEL_WIDTH_PERCENT_MAX = 150;
   const STORAGE_KEYS = ['resumeParsed', 'resumeFlattened', 'resumeEditable', 'resumeUpdatedAt'];
   const BASIC_FIELDS = [
     ['name','姓名','text'],['gender','性别','text'],['birthday','出生日期','date'],['city','所在城市','text'],['idType','证件类型','text'],['idNumber','证件号码','text'],
@@ -46,8 +53,9 @@
     { key:'otherInfo', label:'其他扩展字段', kind:'bullets' }
   ].map((m) => m.fields ? ({ ...m, fields: m.fields.map(([key,label,type]) => ({ key, label, type })) }) : m);
 
-  let panelVisible = false, pinned = true, currentView = 'preview', drag = null, lastActiveEditable = null, listRoot = null;
+  let panelVisible = false, pinned = true, currentView = 'preview', drag = null, lastActiveEditable = null, listRoot = null, panelBrightness = 100, panelOpacity = 0, panelWidthPercent = 100, panelHeight = 680;
   let renderNonce = 0;
+  let skipStorageRenderCount = 0;
   let importDebug = [];
   const byKey = (arr, key) => arr.find((x) => x.key === key);
   const truncate = (t, n = 50) => { const s = String(t || '').replace(/\s+/g, ' ').trim(); return s.length > n ? s.slice(0, n) + '...' : s; };
@@ -347,7 +355,7 @@
     return result.filter((item) => item.group ? item.children?.some((child) => child.value) : item.value);
   }
   async function getState() { const data = await chrome.storage.local.get(STORAGE_KEYS); const parsed = data.resumeParsed || { profile:{}, experiences:[], rawText:'' }; const editable = data.resumeEditable || buildEditable(parsed); return { parsed, editable, flattened: data.resumeFlattened || flattenEditable(editable) }; }
-  async function persist(editable) { const parsed = { profile: { ...editable.profile }, experiences: EXP_GROUPS.flatMap((g) => (editable.experiences[g.key] || []).filter((x) => Object.values(x).some(Boolean)).map((x) => ({ ...x, type:g.key, typeLabel:g.label }))), rawText: '' }; await chrome.storage.local.set({ resumeEditable: editable, resumeParsed: parsed, resumeFlattened: flattenEditable(editable), resumeUpdatedAt: Date.now() }); }
+  async function persist(editable, options = {}) { if (options.skipRender) skipStorageRenderCount += 1; const parsed = { profile: { ...editable.profile }, experiences: EXP_GROUPS.flatMap((g) => (editable.experiences[g.key] || []).filter((x) => Object.values(x).some(Boolean)).map((x) => ({ ...x, type:g.key, typeLabel:g.label }))), rawText: '' }; await chrome.storage.local.set({ resumeEditable: editable, resumeParsed: parsed, resumeFlattened: flattenEditable(editable), resumeUpdatedAt: Date.now() }); }
   const isEditable = (el) => el && (el.isContentEditable || el.tagName?.toLowerCase() === 'textarea' || (el.tagName?.toLowerCase() === 'input' && !['checkbox','radio','button','submit','file'].includes(el.type)));
   document.addEventListener('focusin', (e) => { const t = e.target; if (t instanceof HTMLElement && !t.closest(`#${PANEL_ID}`) && isEditable(t)) lastActiveEditable = t; });
   document.addEventListener('keydown', (e) => { if (e.key === 'Escape') { panelVisible = false; updatePanelVisibility(); } });
@@ -357,6 +365,30 @@
   function toast(msg, isError = false) { const tip = document.createElement('div'); tip.className = `raf-tip${isError ? ' err' : ''}`; tip.textContent = msg; document.body.appendChild(tip); setTimeout(() => tip.remove(), 1800); }
   function setImportDebug(lines) { importDebug = lines; if (listRoot && currentView === 'preview') renderCurrentView(listRoot, { preserveScroll: true }); }
   function updatePanelVisibility() { const panel = document.getElementById(PANEL_ID); if (panel) panel.style.display = panelVisible ? 'block' : 'none'; }
+  function applyPanelBrightness(panel, value) { panelBrightness = Math.max(70, Math.min(130, Number(value) || 100)); if (panel) panel.style.setProperty('--raf-panel-brightness', `${panelBrightness}%`); }
+  function applyPanelOpacity(panel, value) { panelOpacity = Math.max(0, Math.min(100, Number(value) || 0)); if (panel) panel.style.setProperty('--raf-surface-opacity-level', String(panelOpacity / 100)); }
+  function syncPanelLayout(panel) {
+    if (!panel) return;
+    const head = panel.querySelector('.raf-head');
+    if (!head) return;
+    const headHeight = head.offsetHeight || 98;
+    panel.style.setProperty('--raf-head-height', `${headHeight}px`);
+  }
+  function normalizeWidthPercent(value) {
+    const numeric = Number(value);
+    if (!numeric) return PANEL_WIDTH_PERCENT_MIN;
+    if (numeric > 200) return Math.round((numeric / PANEL_WIDTH_BASE) * 100);
+    return Math.round(numeric);
+  }
+  function applyPanelSize(panel, widthPercent, height) {
+    panelWidthPercent = Math.max(PANEL_WIDTH_PERCENT_MIN, Math.min(PANEL_WIDTH_PERCENT_MAX, normalizeWidthPercent(widthPercent)));
+    panelHeight = Math.max(560, Math.min(900, Number(height) || 680));
+    if (panel) {
+      panel.style.setProperty('--raf-panel-width', `${Math.round((PANEL_WIDTH_BASE * panelWidthPercent) / 100)}px`);
+      panel.style.setProperty('--raf-panel-height', `${panelHeight}px`);
+      requestAnimationFrame(() => syncPanelLayout(panel));
+    }
+  }
   async function fillToActive(value) { const copied = await copyValue(value); const target = document.activeElement && isEditable(document.activeElement) ? document.activeElement : lastActiveEditable; if (target && isEditable(target)) { if (target.isContentEditable) { target.focus(); document.execCommand('selectAll', false, null); document.execCommand('insertText', false, value); } else { target.focus(); setNativeValue(target, value); } toast(copied ? '已复制并写入输入框' : '已写入输入框'); return; } toast(copied ? '未找到输入框，内容已复制' : '请先点击目标输入框后再点字段', !copied); }
   async function handleImport(file) {
     const debug = [];
@@ -407,6 +439,7 @@
       const parsed = parseResumeText(rawText || '');
       debug.push(`parseResumeText: 成功`);
       const editable = buildEditable(parsed);
+      skipStorageRenderCount += 1;
       await chrome.storage.local.set({
         resumeParsed: parsed,
         resumeEditable: editable,
@@ -430,7 +463,7 @@
       }
     }
   }
-  async function clearData() { await chrome.storage.local.remove(STORAGE_KEYS); if (listRoot) renderCurrentView(listRoot, { preserveScroll: true }); toast('数据已清空'); }
+  async function clearData() { skipStorageRenderCount += 1; await chrome.storage.local.remove(STORAGE_KEYS); if (listRoot) renderCurrentView(listRoot, { preserveScroll: true }); toast('数据已清空'); }
   function card(label, value, onClick, extra = '') { const wrap = document.createElement('div'); wrap.className = `raf-field-wrap ${extra}`.trim(); const title = document.createElement('div'); title.className = 'raf-field-title'; title.textContent = label; wrap.appendChild(title); const btn = document.createElement('button'); btn.type = 'button'; btn.className = 'raf-item'; btn.innerHTML = `<span class="raf-card-value">${value ? truncate(value) : "<span class='raf-placeholder'>未识别</span>"}</span>`; btn.addEventListener('click', onClick); wrap.appendChild(btn); return wrap; }
   function bindTextareaThumb(textarea, thumb) {
     let dragging = false;
@@ -532,6 +565,161 @@
     if (target.kind === 'bullet') return `[data-raf-kind="bullet"][data-raf-module="${target.module}"][data-raf-index="${target.index}"]`;
     return '';
   };
+  function renderSettingsView(root) {
+    const wrap = document.createElement('div');
+    wrap.className = 'raf-settings-view';
+
+    const panelSection = document.createElement('section');
+    panelSection.className = 'raf-edit-section raf-settings-section';
+    panelSection.appendChild(sectionHead('显示设置'));
+
+    const brightnessCard = document.createElement('div');
+    brightnessCard.className = 'raf-setting-card';
+
+    const settingMeta = document.createElement('div');
+    settingMeta.className = 'raf-setting-meta';
+    settingMeta.innerHTML = `<strong>界面亮度</strong><span>调节整个插件的明暗强度，默认 100%</span>`;
+    brightnessCard.appendChild(settingMeta);
+
+    const settingControl = document.createElement('div');
+    settingControl.className = 'raf-setting-control';
+
+    const slider = document.createElement('input');
+    slider.type = 'range';
+    slider.min = '70';
+    slider.max = '130';
+    slider.step = '1';
+    slider.value = String(panelBrightness);
+    slider.className = 'raf-slider';
+
+    const value = document.createElement('div');
+    value.className = 'raf-setting-value';
+    value.textContent = `${panelBrightness}%`;
+
+    slider.addEventListener('input', (e) => {
+      const next = Number(e.target.value);
+      applyPanelBrightness(document.getElementById(PANEL_ID), next);
+      value.textContent = `${panelBrightness}%`;
+    });
+
+    slider.addEventListener('change', async (e) => {
+      const next = Number(e.target.value);
+      applyPanelBrightness(document.getElementById(PANEL_ID), next);
+      await chrome.storage.local.set({ [BRIGHTNESS_KEY]: panelBrightness });
+    });
+
+    settingControl.appendChild(slider);
+    settingControl.appendChild(value);
+    brightnessCard.appendChild(settingControl);
+    panelSection.appendChild(brightnessCard);
+
+    const opacityCard = document.createElement('div');
+    opacityCard.className = 'raf-setting-card';
+    const opacityMeta = document.createElement('div');
+    opacityMeta.className = 'raf-setting-meta';
+    opacityMeta.innerHTML = `<strong>背景不透明度</strong><span>0 保持当前默认玻璃感，100 为底板完全不透明</span>`;
+    opacityCard.appendChild(opacityMeta);
+    const opacityControl = document.createElement('div');
+    opacityControl.className = 'raf-setting-control';
+    const opacitySlider = document.createElement('input');
+    opacitySlider.type = 'range';
+    opacitySlider.min = '0';
+    opacitySlider.max = '100';
+    opacitySlider.step = '1';
+    opacitySlider.value = String(panelOpacity);
+    opacitySlider.className = 'raf-slider';
+    const opacityValue = document.createElement('div');
+    opacityValue.className = 'raf-setting-value';
+    opacityValue.textContent = `${panelOpacity}%`;
+    opacitySlider.addEventListener('input', (e) => {
+      const next = Number(e.target.value);
+      applyPanelOpacity(document.getElementById(PANEL_ID), next);
+      opacityValue.textContent = `${panelOpacity}%`;
+    });
+    opacitySlider.addEventListener('change', async (e) => {
+      const next = Number(e.target.value);
+      applyPanelOpacity(document.getElementById(PANEL_ID), next);
+      await chrome.storage.local.set({ [OPACITY_KEY]: panelOpacity });
+    });
+    opacityControl.appendChild(opacitySlider);
+    opacityControl.appendChild(opacityValue);
+    opacityCard.appendChild(opacityControl);
+    panelSection.appendChild(opacityCard);
+
+    const widthCard = document.createElement('div');
+    widthCard.className = 'raf-setting-card';
+    const widthMeta = document.createElement('div');
+    widthMeta.className = 'raf-setting-meta';
+    widthMeta.innerHTML = `<strong>面板宽度</strong><span>以 410px 为 100%，支持缩到 80%，也可继续放宽</span>`;
+    widthCard.appendChild(widthMeta);
+    const widthControl = document.createElement('div');
+    widthControl.className = 'raf-setting-control';
+    const widthSlider = document.createElement('input');
+    widthSlider.type = 'range';
+    widthSlider.min = String(PANEL_WIDTH_PERCENT_MIN);
+    widthSlider.max = String(PANEL_WIDTH_PERCENT_MAX);
+    widthSlider.step = '1';
+    widthSlider.value = String(panelWidthPercent);
+    widthSlider.className = 'raf-slider';
+    const widthValue = document.createElement('div');
+    widthValue.className = 'raf-setting-value';
+    widthValue.textContent = `${panelWidthPercent}%`;
+    widthSlider.addEventListener('input', (e) => {
+      const next = Number(e.target.value);
+      applyPanelSize(document.getElementById(PANEL_ID), next, panelHeight);
+      widthValue.textContent = `${panelWidthPercent}%`;
+    });
+    widthSlider.addEventListener('change', async (e) => {
+      const next = Number(e.target.value);
+      applyPanelSize(document.getElementById(PANEL_ID), next, panelHeight);
+      await chrome.storage.local.set({ [WIDTH_KEY]: panelWidthPercent });
+    });
+    widthControl.appendChild(widthSlider);
+    widthControl.appendChild(widthValue);
+    widthCard.appendChild(widthControl);
+    panelSection.appendChild(widthCard);
+
+    const heightCard = document.createElement('div');
+    heightCard.className = 'raf-setting-card';
+    const heightMeta = document.createElement('div');
+    heightMeta.className = 'raf-setting-meta';
+    heightMeta.innerHTML = `<strong>面板高度</strong><span>调节插件上下高度，默认 680px</span>`;
+    heightCard.appendChild(heightMeta);
+    const heightControl = document.createElement('div');
+    heightControl.className = 'raf-setting-control';
+    const heightSlider = document.createElement('input');
+    heightSlider.type = 'range';
+    heightSlider.min = '560';
+    heightSlider.max = '900';
+    heightSlider.step = '4';
+    heightSlider.value = String(panelHeight);
+    heightSlider.className = 'raf-slider';
+    const heightValue = document.createElement('div');
+    heightValue.className = 'raf-setting-value';
+    heightValue.textContent = `${panelHeight}px`;
+    heightSlider.addEventListener('input', (e) => {
+      const next = Number(e.target.value);
+      applyPanelSize(document.getElementById(PANEL_ID), panelWidthPercent, next);
+      heightValue.textContent = `${panelHeight}px`;
+    });
+    heightSlider.addEventListener('change', async (e) => {
+      const next = Number(e.target.value);
+      applyPanelSize(document.getElementById(PANEL_ID), panelWidthPercent, next);
+      await chrome.storage.local.set({ [HEIGHT_KEY]: panelHeight });
+    });
+    heightControl.appendChild(heightSlider);
+    heightControl.appendChild(heightValue);
+    heightCard.appendChild(heightControl);
+    panelSection.appendChild(heightCard);
+
+    const note = document.createElement('div');
+    note.className = 'raf-settings-note';
+    note.textContent = '设置会自动保存，重新打开插件后继续生效。';
+    panelSection.appendChild(note);
+
+    wrap.appendChild(panelSection);
+    root.appendChild(wrap);
+  }
   async function renderPreviewView(root, nonce) {
     const { editable } = await getState();
     const state = moduleState(editable);
@@ -654,10 +842,10 @@
       root.appendChild(debug);
     }
   }
-  function renderTags(form, mod, state, editable, root) { const items = state[mod.key] || []; if (!items.length) items.push(''); const section = document.createElement('section'); section.className = 'raf-edit-section raf-lite-section'; section.appendChild(sectionHead(mod.label, '添加标签', async () => { items.push(''); syncModules(editable, state); await persist(editable); renderCurrentView(root, { focusTarget: { kind: 'tag', module: mod.key, index: items.length - 1 } }); })); const wrap = document.createElement('div'); wrap.className = 'raf-tag-list'; items.forEach((item, i) => { const chip = document.createElement('div'); chip.className = 'raf-tag-edit'; chip.dataset.rafKind = 'tag'; chip.dataset.rafModule = mod.key; chip.dataset.rafIndex = String(i); const input = document.createElement('input'); input.type = 'text'; input.className = 'raf-tag-input'; input.value = item; input.placeholder = '请输入标签'; input.addEventListener('input', async (e) => { items[i] = e.target.value; syncModules(editable, state); await persist(editable); }); chip.appendChild(input); chip.appendChild(delBtn(async () => { const fixedScrollTop = root.scrollTop; items.splice(i, 1); syncModules(editable, state); await persist(editable); renderCurrentView(root, { preserveScroll: true, scrollTop: fixedScrollTop }); })); wrap.appendChild(chip); }); section.appendChild(wrap); form.appendChild(section); }
-  function renderBullets(form, mod, state, editable, root) { const items = state[mod.key] || []; if (!items.length) items.push(''); const section = document.createElement('section'); section.className = 'raf-edit-section raf-lite-section'; section.appendChild(sectionHead(mod.label, '添加一条', async () => { items.push(''); syncModules(editable, state); await persist(editable); renderCurrentView(root, { focusTarget: { kind: 'bullet', module: mod.key, index: items.length - 1 } }); })); const list = document.createElement('div'); list.className = 'raf-inline-list'; items.forEach((item, i) => { const row = document.createElement('div'); row.className = 'raf-inline-row'; row.dataset.rafKind = 'bullet'; row.dataset.rafModule = mod.key; row.dataset.rafIndex = String(i); const input = document.createElement('input'); input.type = 'text'; input.className = 'raf-edit-input'; input.value = item; input.placeholder = `请输入${mod.label}`; input.addEventListener('input', async (e) => { items[i] = e.target.value; syncModules(editable, state); await persist(editable); }); row.appendChild(input); row.appendChild(delBtn(async () => { const fixedScrollTop = root.scrollTop; items.splice(i, 1); syncModules(editable, state); await persist(editable); renderCurrentView(root, { preserveScroll: true, scrollTop: fixedScrollTop }); })); list.appendChild(row); }); section.appendChild(list); form.appendChild(section); }
-  function renderRecords(form, mod, state, editable, root) { const items = state[mod.key] || []; if (!items.length) items.push(Object.fromEntries(mod.fields.map((f) => [f.key, '']))); const section = document.createElement('section'); section.className = 'raf-edit-section raf-lite-section'; section.appendChild(sectionHead(mod.label, '添加一条', async () => { items.push(Object.fromEntries(mod.fields.map((f) => [f.key, '']))); syncModules(editable, state); await persist(editable); renderCurrentView(root, { focusTarget: { kind: 'record', module: mod.key, index: items.length - 1 } }); })); items.forEach((item, i) => { const entry = document.createElement('div'); entry.className = 'raf-edit-entry'; entry.dataset.rafKind = 'record'; entry.dataset.rafModule = mod.key; entry.dataset.rafIndex = String(i); const head = document.createElement('div'); head.className = 'raf-edit-entry-head'; const strong = document.createElement('strong'); strong.textContent = `${mod.label}${i + 1}`; head.appendChild(strong); head.appendChild(delBtn(async () => { const fixedScrollTop = root.scrollTop; items.splice(i, 1); syncModules(editable, state); await persist(editable); renderCurrentView(root, { preserveScroll: true, scrollTop: fixedScrollTop }); })); entry.appendChild(head); const grid = document.createElement('div'); grid.className = 'raf-edit-grid'; mod.fields.forEach((field) => grid.appendChild(inputField(field, item[field.key], async (next) => { item[field.key] = next; syncModules(editable, state); await persist(editable); }))); entry.appendChild(grid); section.appendChild(entry); }); form.appendChild(section); }
-  function renderExperiences(form, editable, root) { EXP_GROUPS.forEach((group) => { const items = editable.experiences[group.key] || []; if (!items.length) items.push(Object.fromEntries(group.fields.map((field) => [field.key, '']))); const section = document.createElement('section'); section.className = 'raf-edit-section raf-lite-section'; section.appendChild(sectionHead(group.label, '添加一条', async () => { items.push(Object.fromEntries(group.fields.map((field) => [field.key, '']))); await persist(editable); renderCurrentView(root, { focusTarget: { kind: 'experience', group: group.key, index: items.length - 1 } }); })); items.forEach((item, i) => { const entry = document.createElement('div'); entry.className = 'raf-edit-entry'; entry.dataset.rafKind = 'experience'; entry.dataset.rafGroup = group.key; entry.dataset.rafIndex = String(i); const head = document.createElement('div'); head.className = 'raf-edit-entry-head'; const strong = document.createElement('strong'); strong.textContent = `${group.label}${i + 1}`; head.appendChild(strong); head.appendChild(delBtn(async () => { const fixedScrollTop = root.scrollTop; const idx = items.indexOf(item); if (idx >= 0) items.splice(idx, 1); await persist(editable); renderCurrentView(root, { preserveScroll: true, scrollTop: fixedScrollTop }); })); entry.appendChild(head); const grid = document.createElement('div'); grid.className = 'raf-edit-grid'; group.fields.forEach((field) => grid.appendChild(inputField(field, item[field.key], async (next) => { item[field.key] = next; await persist(editable); }))); entry.appendChild(grid); section.appendChild(entry); }); form.appendChild(section); }); }
+  function renderTags(form, mod, state, editable, root) { const items = state[mod.key] || []; if (!items.length) items.push(''); const section = document.createElement('section'); section.className = 'raf-edit-section raf-lite-section'; section.appendChild(sectionHead(mod.label, '添加标签', async () => { items.push(''); syncModules(editable, state); await persist(editable, { skipRender: true }); renderCurrentView(root, { focusTarget: { kind: 'tag', module: mod.key, index: items.length - 1 } }); })); const wrap = document.createElement('div'); wrap.className = 'raf-tag-list'; items.forEach((item, i) => { const chip = document.createElement('div'); chip.className = 'raf-tag-edit'; chip.dataset.rafKind = 'tag'; chip.dataset.rafModule = mod.key; chip.dataset.rafIndex = String(i); const input = document.createElement('input'); input.type = 'text'; input.className = 'raf-tag-input'; input.value = item; input.placeholder = '请输入标签'; input.addEventListener('input', async (e) => { items[i] = e.target.value; syncModules(editable, state); await persist(editable); }); chip.appendChild(input); chip.appendChild(delBtn(async () => { const fixedScrollTop = root.scrollTop; items.splice(i, 1); syncModules(editable, state); await persist(editable, { skipRender: true }); renderCurrentView(root, { preserveScroll: true, scrollTop: fixedScrollTop }); })); wrap.appendChild(chip); }); section.appendChild(wrap); form.appendChild(section); }
+  function renderBullets(form, mod, state, editable, root) { const items = state[mod.key] || []; if (!items.length) items.push(''); const section = document.createElement('section'); section.className = 'raf-edit-section raf-lite-section'; section.appendChild(sectionHead(mod.label, '添加一条', async () => { items.push(''); syncModules(editable, state); await persist(editable, { skipRender: true }); renderCurrentView(root, { focusTarget: { kind: 'bullet', module: mod.key, index: items.length - 1 } }); })); const list = document.createElement('div'); list.className = 'raf-inline-list'; items.forEach((item, i) => { const row = document.createElement('div'); row.className = 'raf-inline-row'; row.dataset.rafKind = 'bullet'; row.dataset.rafModule = mod.key; row.dataset.rafIndex = String(i); const input = document.createElement('input'); input.type = 'text'; input.className = 'raf-edit-input'; input.value = item; input.placeholder = `请输入${mod.label}`; input.addEventListener('input', async (e) => { items[i] = e.target.value; syncModules(editable, state); await persist(editable); }); row.appendChild(input); row.appendChild(delBtn(async () => { const fixedScrollTop = root.scrollTop; items.splice(i, 1); syncModules(editable, state); await persist(editable, { skipRender: true }); renderCurrentView(root, { preserveScroll: true, scrollTop: fixedScrollTop }); })); list.appendChild(row); }); section.appendChild(list); form.appendChild(section); }
+  function renderRecords(form, mod, state, editable, root) { const items = state[mod.key] || []; if (!items.length) items.push(Object.fromEntries(mod.fields.map((f) => [f.key, '']))); const section = document.createElement('section'); section.className = 'raf-edit-section raf-lite-section'; section.appendChild(sectionHead(mod.label, '添加一条', async () => { items.push(Object.fromEntries(mod.fields.map((f) => [f.key, '']))); syncModules(editable, state); await persist(editable, { skipRender: true }); renderCurrentView(root, { focusTarget: { kind: 'record', module: mod.key, index: items.length - 1 } }); })); items.forEach((item, i) => { const entry = document.createElement('div'); entry.className = 'raf-edit-entry'; entry.dataset.rafKind = 'record'; entry.dataset.rafModule = mod.key; entry.dataset.rafIndex = String(i); const head = document.createElement('div'); head.className = 'raf-edit-entry-head'; const strong = document.createElement('strong'); strong.textContent = `${mod.label}${i + 1}`; head.appendChild(strong); head.appendChild(delBtn(async () => { const fixedScrollTop = root.scrollTop; items.splice(i, 1); syncModules(editable, state); await persist(editable, { skipRender: true }); renderCurrentView(root, { preserveScroll: true, scrollTop: fixedScrollTop }); })); entry.appendChild(head); const grid = document.createElement('div'); grid.className = 'raf-edit-grid'; mod.fields.forEach((field) => grid.appendChild(inputField(field, item[field.key], async (next) => { item[field.key] = next; syncModules(editable, state); await persist(editable); }))); entry.appendChild(grid); section.appendChild(entry); }); form.appendChild(section); }
+  function renderExperiences(form, editable, root) { EXP_GROUPS.forEach((group) => { const items = editable.experiences[group.key] || []; if (!items.length) items.push(Object.fromEntries(group.fields.map((field) => [field.key, '']))); const section = document.createElement('section'); section.className = 'raf-edit-section raf-lite-section'; section.appendChild(sectionHead(group.label, '添加一条', async () => { items.push(Object.fromEntries(group.fields.map((field) => [field.key, '']))); await persist(editable, { skipRender: true }); renderCurrentView(root, { focusTarget: { kind: 'experience', group: group.key, index: items.length - 1 } }); })); items.forEach((item, i) => { const entry = document.createElement('div'); entry.className = 'raf-edit-entry'; entry.dataset.rafKind = 'experience'; entry.dataset.rafGroup = group.key; entry.dataset.rafIndex = String(i); const head = document.createElement('div'); head.className = 'raf-edit-entry-head'; const strong = document.createElement('strong'); strong.textContent = `${group.label}${i + 1}`; head.appendChild(strong); head.appendChild(delBtn(async () => { const fixedScrollTop = root.scrollTop; const idx = items.indexOf(item); if (idx >= 0) items.splice(idx, 1); await persist(editable, { skipRender: true }); renderCurrentView(root, { preserveScroll: true, scrollTop: fixedScrollTop }); })); entry.appendChild(head); const grid = document.createElement('div'); grid.className = 'raf-edit-grid'; group.fields.forEach((field) => grid.appendChild(inputField(field, item[field.key], async (next) => { item[field.key] = next; await persist(editable); }))); entry.appendChild(grid); section.appendChild(entry); }); form.appendChild(section); }); }
   function renderEditTools(form, root) {
     const section = document.createElement('section');
     section.className = 'raf-edit-section raf-edit-tools';
@@ -688,14 +876,14 @@
     section.appendChild(row);
     form.appendChild(section);
   }
-  async function renderEditView(root, nonce) {
+  async function renderEditView(root, nonce, hostRoot = root) {
     const { editable } = await getState();
     if (nonce !== renderNonce) return;
     const state = moduleState(editable);
     const form = document.createElement('div');
     form.className = 'raf-edit-view';
 
-    renderEditTools(form, root);
+    renderEditTools(form, hostRoot);
 
     const basicSection = document.createElement('section');
     basicSection.className = 'raf-edit-section raf-basic-section';
@@ -709,11 +897,11 @@
     basicSection.appendChild(grid);
     form.appendChild(basicSection);
 
-    renderExperiences(form, editable, root);
+    renderExperiences(form, editable, hostRoot);
     MODULES.forEach((mod) => {
-      if (mod.kind === 'tags') renderTags(form, mod, state, editable, root);
-      else if (mod.kind === 'bullets') renderBullets(form, mod, state, editable, root);
-      else renderRecords(form, mod, state, editable, root);
+      if (mod.kind === 'tags') renderTags(form, mod, state, editable, hostRoot);
+      else if (mod.kind === 'bullets') renderBullets(form, mod, state, editable, hostRoot);
+      else renderRecords(form, mod, state, editable, hostRoot);
     });
 
     if (nonce !== renderNonce) return;
@@ -723,9 +911,12 @@
     listRoot = root;
     const nonce = ++renderNonce;
     const previousScrollTop = options.preserveScroll ? (typeof options.scrollTop === 'number' ? options.scrollTop : root.scrollTop) : 0;
-    root.innerHTML = '';
-    if (currentView === 'edit') await renderEditView(root, nonce); else await renderPreviewView(root, nonce);
+    const staging = document.createElement('div');
+    if (currentView === 'edit') await renderEditView(staging, nonce, root);
+    else if (currentView === 'settings') renderSettingsView(staging);
+    else await renderPreviewView(staging, nonce);
     if (nonce !== renderNonce) return;
+    root.replaceChildren(...staging.childNodes);
     if (options.focusTarget) {
       requestAnimationFrame(() => {
         if (nonce !== renderNonce) return;
@@ -745,7 +936,7 @@
       });
     }
   }
-  async function savePanelState(panel) { await chrome.storage.local.set({ [PIN_KEY]: pinned, [POS_KEY]: { left: panel.style.left, top: panel.style.top }, [VIEW_KEY]: currentView }); }
+  async function savePanelState(panel) { await chrome.storage.local.set({ [PIN_KEY]: pinned, [POS_KEY]: { left: panel.style.left, top: panel.style.top }, [VIEW_KEY]: currentView, [BRIGHTNESS_KEY]: panelBrightness, [OPACITY_KEY]: panelOpacity, [WIDTH_KEY]: panelWidthPercent, [HEIGHT_KEY]: panelHeight }); }
   async function applyPinState(panel, checked) { pinned = checked; panel.style.position = pinned ? 'fixed' : 'absolute'; if (!pinned) panel.style.top = `${window.scrollY + 90}px`; await savePanelState(panel); }
   async function ensurePanel() {
     let panel = document.getElementById(PANEL_ID);
@@ -754,34 +945,50 @@
     panel.id = PANEL_ID;
     panel.style.left = '20px';
     panel.style.top = '90px';
-    panel.innerHTML = `<div class="raf-head"><div class="raf-head-top"><div class="raf-brand"><strong>Chauny</strong><strong>后仰跳投</strong></div><div class="raf-actions"><div class="raf-mode-group"><button id="raf-preview-tab" class="raf-tab active" type="button">预览</button><button id="raf-edit-tab" class="raf-tab" type="button">编辑</button><button id="raf-pin-btn" class="raf-tab" type="button">固定</button><button id="raf-close" class="raf-tab raf-close-tab" type="button">关闭</button></div></div></div><div class="raf-head-note">朋友我祝你简历过过过！别忘了关注昂——川页Chauny</div></div><div id="raf-list" class="raf-list"></div>`;
+    panel.innerHTML = `<div class="raf-head"><div class="raf-head-top"><div class="raf-brand"><strong>Chauny</strong><strong>后仰跳投</strong></div><div class="raf-actions"><div class="raf-mode-group"><button id="raf-settings-tab" class="raf-tab" type="button">设置</button><button id="raf-preview-tab" class="raf-tab active" type="button">预览</button><button id="raf-edit-tab" class="raf-tab" type="button">编辑</button><button id="raf-pin-btn" class="raf-tab" type="button">固定</button><button id="raf-close" class="raf-tab raf-close-tab" type="button">关闭</button></div></div></div><div class="raf-head-note">朋友我祝你简历过过过！别忘了关注昂——川页Chauny</div></div><div id="raf-list" class="raf-list"></div>`;
     document.body.appendChild(panel);
 
     const listEl = panel.querySelector('#raf-list');
+    const settingsTab = panel.querySelector('#raf-settings-tab');
     const pinBtn = panel.querySelector('#raf-pin-btn');
     const closeEl = panel.querySelector('#raf-close');
     const previewTab = panel.querySelector('#raf-preview-tab');
     const editTab = panel.querySelector('#raf-edit-tab');
     const applyToolbarByView = () => {
+      const isSettings = currentView === 'settings';
       const isEdit = currentView === 'edit';
-      previewTab.classList.toggle('active', !isEdit);
+      settingsTab.classList.toggle('active', isSettings);
+      previewTab.classList.toggle('active', !isEdit && !isSettings);
       editTab.classList.toggle('active', isEdit);
       pinBtn.classList.toggle('active', !!pinned);
-      previewTab.setAttribute('aria-pressed', String(!isEdit));
+      settingsTab.setAttribute('aria-pressed', String(isSettings));
+      previewTab.setAttribute('aria-pressed', String(!isEdit && !isSettings));
       editTab.setAttribute('aria-pressed', String(isEdit));
       pinBtn.setAttribute('aria-pressed', String(!!pinned));
       closeEl.setAttribute('aria-pressed', 'false');
     };
 
-    const stored = await chrome.storage.local.get([PIN_KEY, POS_KEY, VIEW_KEY]);
+    const stored = await chrome.storage.local.get([PIN_KEY, POS_KEY, VIEW_KEY, BRIGHTNESS_KEY, OPACITY_KEY, WIDTH_KEY, HEIGHT_KEY]);
     if (stored[POS_KEY]?.left) panel.style.left = stored[POS_KEY].left;
     if (stored[POS_KEY]?.top) panel.style.top = stored[POS_KEY].top;
     pinned = stored[PIN_KEY] !== false;
     currentView = stored[VIEW_KEY] || 'preview';
+    applyPanelBrightness(panel, stored[BRIGHTNESS_KEY] ?? 100);
+    applyPanelOpacity(panel, stored[OPACITY_KEY] ?? 0);
+    applyPanelSize(panel, stored[WIDTH_KEY] ?? PANEL_WIDTH_PERCENT_MIN, stored[HEIGHT_KEY] ?? 680);
+    syncPanelLayout(panel);
     applyToolbarByView();
 
     await applyPinState(panel, pinned);
     await renderCurrentView(listEl);
+    syncPanelLayout(panel);
+
+    settingsTab.addEventListener('click', async () => {
+      currentView = 'settings';
+      applyToolbarByView();
+      await savePanelState(panel);
+      renderCurrentView(listEl);
+    });
 
     previewTab.addEventListener('click', async () => {
       currentView = 'preview';
@@ -799,6 +1006,10 @@
 
     chrome.storage.onChanged.addListener((changes, area) => {
       if (area === 'local' && (changes.resumeFlattened || changes.resumeEditable || changes.resumeParsed) && listRoot === listEl) {
+        if (skipStorageRenderCount > 0) {
+          skipStorageRenderCount -= 1;
+          return;
+        }
         renderCurrentView(listEl, { preserveScroll: true });
       }
     });
@@ -810,12 +1021,16 @@
     });
     closeEl.addEventListener('click', (e) => { e.stopPropagation(); panelVisible = false; updatePanelVisibility(); });
     closeEl.addEventListener('mousedown', (e) => e.stopPropagation());
+    settingsTab.addEventListener('mousedown', (e) => e.stopPropagation());
     previewTab.addEventListener('mousedown', (e) => e.stopPropagation());
     editTab.addEventListener('mousedown', (e) => e.stopPropagation());
     pinBtn.addEventListener('mousedown', (e) => e.stopPropagation());
 
     const head = panel.querySelector('.raf-head');
     head.addEventListener('mousedown', (e) => {
+      const target = e.target;
+      if (!(target instanceof HTMLElement)) return;
+      if (target.closest('button, input, textarea, label, a, .raf-actions, .raf-mode-group')) return;
       drag = { x: e.clientX, y: e.clientY, left: panel.offsetLeft, top: panel.offsetTop };
       e.preventDefault();
     });
@@ -829,6 +1044,7 @@
       drag = null;
       await savePanelState(panel);
     });
+    window.addEventListener('resize', () => syncPanelLayout(panel));
     return panel;
   }
   await ensurePanel();
