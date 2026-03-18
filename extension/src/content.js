@@ -47,6 +47,7 @@
   ].map((m) => m.fields ? ({ ...m, fields: m.fields.map(([key,label,type]) => ({ key, label, type })) }) : m);
 
   let panelVisible = false, pinned = true, currentView = 'preview', drag = null, lastActiveEditable = null, listRoot = null;
+  let renderNonce = 0;
   let importDebug = [];
   const byKey = (arr, key) => arr.find((x) => x.key === key);
   const truncate = (t, n = 50) => { const s = String(t || '').replace(/\s+/g, ' ').trim(); return s.length > n ? s.slice(0, n) + '...' : s; };
@@ -286,18 +287,36 @@
     return rec;
   }).filter((rec) => Object.values(rec).some(Boolean));
   const saveRecords = (items, fields) => items.filter((it) => Object.values(it || {}).some((v) => String(v || '').trim())).map((it) => fields.map((f) => it[f.key] ? `${f.label}：${it[f.key]}` : '').filter(Boolean).join('\n')).filter(Boolean).join('\n\n');
-  const moduleState = (editable) => ({
-    skills: tags(editable.profile.skills), advantages: bullets(editable.profile.advantages), otherInfo: bullets(editable.profile.otherInfo),
-    certificates: parseRecords(editable.profile.certificates, byKey(MODULES, 'certificates').fields), awards: parseRecords(editable.profile.awards, byKey(MODULES, 'awards').fields),
-    academicWorks: parseRecords(editable.profile.academicWorks, byKey(MODULES, 'academicWorks').fields), languages: parseRecords(editable.profile.languages, byKey(MODULES, 'languages').fields),
-    campusExperience: parseRecords(editable.profile.campusExperience, byKey(MODULES, 'campusExperience').fields)
-  });
+  const cloneRecordList = (list) => (Array.isArray(list) ? list.map((item) => ({ ...(item || {}) })) : []);
+  const moduleState = (editable) => {
+    const drafts = editable.moduleDrafts || {};
+    return {
+      skills: Array.isArray(drafts.skills) ? [...drafts.skills] : tags(editable.profile.skills),
+      advantages: Array.isArray(drafts.advantages) ? [...drafts.advantages] : bullets(editable.profile.advantages),
+      otherInfo: Array.isArray(drafts.otherInfo) ? [...drafts.otherInfo] : bullets(editable.profile.otherInfo),
+      certificates: Array.isArray(drafts.certificates) ? cloneRecordList(drafts.certificates) : parseRecords(editable.profile.certificates, byKey(MODULES, 'certificates').fields),
+      awards: Array.isArray(drafts.awards) ? cloneRecordList(drafts.awards) : parseRecords(editable.profile.awards, byKey(MODULES, 'awards').fields),
+      academicWorks: Array.isArray(drafts.academicWorks) ? cloneRecordList(drafts.academicWorks) : parseRecords(editable.profile.academicWorks, byKey(MODULES, 'academicWorks').fields),
+      languages: Array.isArray(drafts.languages) ? cloneRecordList(drafts.languages) : parseRecords(editable.profile.languages, byKey(MODULES, 'languages').fields),
+      campusExperience: Array.isArray(drafts.campusExperience) ? cloneRecordList(drafts.campusExperience) : parseRecords(editable.profile.campusExperience, byKey(MODULES, 'campusExperience').fields)
+    };
+  };
   const syncModules = (editable, state) => {
     editable.profile.skills = saveTags(state.skills || []); editable.profile.advantages = saveBullets(state.advantages || []); editable.profile.otherInfo = saveBullets(state.otherInfo || []);
     ['certificates','awards','academicWorks','languages','campusExperience'].forEach((key) => editable.profile[key] = saveRecords(state[key] || [], byKey(MODULES, key).fields));
+    editable.moduleDrafts = {
+      skills: [...(state.skills || [])],
+      advantages: [...(state.advantages || [])],
+      otherInfo: [...(state.otherInfo || [])],
+      certificates: cloneRecordList(state.certificates || []),
+      awards: cloneRecordList(state.awards || []),
+      academicWorks: cloneRecordList(state.academicWorks || []),
+      languages: cloneRecordList(state.languages || []),
+      campusExperience: cloneRecordList(state.campusExperience || [])
+    };
   };
-  const withDefaults = (parsed) => ({ profile: { ...Object.fromEntries(BASIC_FIELDS.map((f) => [f.key, ''])), advantages:'',skills:'',certificates:'',awards:'',academicWorks:'',languages:'',campusExperience:'',otherInfo:'', ...(parsed.profile || {}) }, experiences: { internship:[], project:[], work:[], ...Object.fromEntries(EXP_GROUPS.map((g) => [g.key, []])) } });
-  function buildEditable(parsed) { const editable = withDefaults(parsed || {}); (parsed.experiences || []).forEach((x) => { const text = `${x.title || ''} ${x.company || ''} ${x.role || ''} ${x.description || ''}`; const forcedProject = /(自主项目|个人项目|side project)/i.test(text); const type = forcedProject ? 'project' : (x.type || 'project'); editable.experiences[type].push({ title:x.title||'', role:x.role||'', company:x.company||'', start:x.start||'', end:x.end||'', description:x.description||'' }); }); return editable; }
+  const withDefaults = (parsed) => ({ profile: { ...Object.fromEntries(BASIC_FIELDS.map((f) => [f.key, ''])), advantages:'',skills:'',certificates:'',awards:'',academicWorks:'',languages:'',campusExperience:'',otherInfo:'', ...(parsed.profile || {}) }, experiences: { internship:[], project:[], work:[], ...Object.fromEntries(EXP_GROUPS.map((g) => [g.key, []])) }, moduleDrafts: {} });
+  function buildEditable(parsed) { const editable = withDefaults(parsed || {}); (parsed.experiences || []).forEach((x) => { const text = `${x.title || ''} ${x.company || ''} ${x.role || ''} ${x.description || ''}`; const forcedProject = /(自主项目|个人项目|side project)/i.test(text); const type = forcedProject ? 'project' : (x.type || 'project'); editable.experiences[type].push({ title:x.title||'', role:x.role||'', company:x.company||'', start:x.start||'', end:x.end||'', description:x.description||'' }); }); editable.moduleDrafts = moduleState(editable); return editable; }
   function flattenEditable(editable) {
     const result = BASIC_FIELDS.map((field) => ({
       key: field.key,
@@ -413,7 +432,80 @@
   }
   async function clearData() { await chrome.storage.local.remove(STORAGE_KEYS); if (listRoot) renderCurrentView(listRoot, { preserveScroll: true }); toast('数据已清空'); }
   function card(label, value, onClick, extra = '') { const wrap = document.createElement('div'); wrap.className = `raf-field-wrap ${extra}`.trim(); const title = document.createElement('div'); title.className = 'raf-field-title'; title.textContent = label; wrap.appendChild(title); const btn = document.createElement('button'); btn.type = 'button'; btn.className = 'raf-item'; btn.innerHTML = `<span class="raf-card-value">${value ? truncate(value) : "<span class='raf-placeholder'>未识别</span>"}</span>`; btn.addEventListener('click', onClick); wrap.appendChild(btn); return wrap; }
-  function inputField(field, value, onChange) { const row = document.createElement('div'); row.className = `raf-edit-field${field.type === 'textarea' ? ' full' : ''}`; const title = document.createElement('div'); title.className = 'raf-field-title'; title.textContent = field.label; const el = document.createElement(field.type === 'textarea' ? 'textarea' : 'input'); if (field.type !== 'textarea') el.type = field.type === 'date' ? 'date' : 'text'; el.className = 'raf-edit-input'; el.value = field.type === 'date' ? dateInput(value) : (value || ''); el.placeholder = `请输入${field.label}`; el.addEventListener('input', (e) => onChange(e.target.value)); row.appendChild(title); row.appendChild(el); return row; }
+  function bindTextareaThumb(textarea, thumb) {
+    let dragging = false;
+    let startY = 0;
+    let startScrollTop = 0;
+
+    const updateThumb = () => {
+      const scrollHeight = textarea.scrollHeight;
+      const clientHeight = textarea.clientHeight;
+      const maxScroll = Math.max(1, scrollHeight - clientHeight);
+      if (scrollHeight <= clientHeight + 1) {
+        thumb.style.opacity = '0';
+        return;
+      }
+      const minThumb = 20;
+      const trackHeight = Math.max(1, clientHeight - 6);
+      const thumbHeight = Math.max(minThumb, Math.round((clientHeight / scrollHeight) * trackHeight));
+      const thumbTravel = Math.max(1, trackHeight - thumbHeight);
+      const top = Math.round((textarea.scrollTop / maxScroll) * thumbTravel);
+      thumb.style.height = `${thumbHeight}px`;
+      thumb.style.transform = `translateY(${3 + top}px)`;
+      thumb.style.opacity = '1';
+    };
+
+    textarea.addEventListener('scroll', updateThumb);
+    textarea.addEventListener('input', updateThumb);
+    requestAnimationFrame(updateThumb);
+
+    thumb.addEventListener('mousedown', (e) => {
+      dragging = true;
+      startY = e.clientY;
+      startScrollTop = textarea.scrollTop;
+      e.preventDefault();
+    });
+    document.addEventListener('mousemove', (e) => {
+      if (!dragging) return;
+      const scrollHeight = textarea.scrollHeight;
+      const clientHeight = textarea.clientHeight;
+      const maxScroll = Math.max(1, scrollHeight - clientHeight);
+      const trackHeight = Math.max(1, clientHeight - 6);
+      const thumbHeight = Math.max(20, Math.round((clientHeight / scrollHeight) * trackHeight));
+      const thumbTravel = Math.max(1, trackHeight - thumbHeight);
+      const delta = e.clientY - startY;
+      textarea.scrollTop = Math.max(0, Math.min(maxScroll, startScrollTop + (delta * maxScroll) / thumbTravel));
+      updateThumb();
+    });
+    document.addEventListener('mouseup', () => { dragging = false; });
+  }
+  function inputField(field, value, onChange) {
+    const row = document.createElement('div');
+    row.className = `raf-edit-field${field.type === 'textarea' ? ' full' : ''}`;
+    const title = document.createElement('div');
+    title.className = 'raf-field-title';
+    title.textContent = field.label;
+    const el = document.createElement(field.type === 'textarea' ? 'textarea' : 'input');
+    if (field.type !== 'textarea') el.type = field.type === 'date' ? 'date' : 'text';
+    el.className = 'raf-edit-input';
+    el.value = field.type === 'date' ? dateInput(value) : (value || '');
+    el.placeholder = `请输入${field.label}`;
+    el.addEventListener('input', (e) => onChange(e.target.value));
+    row.appendChild(title);
+    if (field.type === 'textarea') {
+      const shell = document.createElement('div');
+      shell.className = 'raf-textarea-shell';
+      const thumb = document.createElement('div');
+      thumb.className = 'raf-textarea-thumb';
+      shell.appendChild(el);
+      shell.appendChild(thumb);
+      row.appendChild(shell);
+      bindTextareaThumb(el, thumb);
+    } else {
+      row.appendChild(el);
+    }
+    return row;
+  }
   function sectionHead(text, addText, onAdd) { const head = document.createElement('div'); head.className = 'raf-module-head'; const title = document.createElement('div'); title.className = 'raf-module-title'; title.textContent = text; head.appendChild(title); if (onAdd) { const btn = document.createElement('button'); btn.type = 'button'; btn.className = 'raf-mini-btn'; btn.textContent = addText; btn.addEventListener('click', onAdd); head.appendChild(btn); } return head; }
   function delBtn(onClick) { const btn = document.createElement('button'); btn.type = 'button'; btn.className = 'raf-link-btn'; btn.textContent = '删除'; btn.addEventListener('click', onClick); return btn; }
   function previewField(field, value) {
@@ -440,7 +532,7 @@
     if (target.kind === 'bullet') return `[data-raf-kind="bullet"][data-raf-module="${target.module}"][data-raf-index="${target.index}"]`;
     return '';
   };
-  async function renderPreviewView(root) {
+  async function renderPreviewView(root, nonce) {
     const { editable } = await getState();
     const state = moduleState(editable);
     const form = document.createElement('div');
@@ -548,11 +640,13 @@
       form.appendChild(section);
     });
 
+    if (nonce !== renderNonce) return;
     if (!form.children.length) {
       root.innerHTML = "<div class='raf-empty'>切换到“编辑”后导入简历，这里会展示最终预览与填充卡片。</div>";
     } else {
       root.appendChild(form);
     }
+    if (nonce !== renderNonce) return;
     if (importDebug.length) {
       const debug = document.createElement('div');
       debug.className = 'raf-debug';
@@ -560,10 +654,10 @@
       root.appendChild(debug);
     }
   }
-  function renderTags(form, mod, state, editable, root) { const items = state[mod.key] || []; if (!items.length) items.push(''); const section = document.createElement('section'); section.className = 'raf-edit-section raf-lite-section'; section.appendChild(sectionHead(mod.label, '添加标签', async () => { items.push(''); syncModules(editable, state); await persist(editable); renderCurrentView(root, { focusTarget: { kind: 'tag', module: mod.key, index: items.length - 1 } }); })); const wrap = document.createElement('div'); wrap.className = 'raf-tag-list'; items.forEach((item, i) => { const chip = document.createElement('div'); chip.className = 'raf-tag-edit'; chip.dataset.rafKind = 'tag'; chip.dataset.rafModule = mod.key; chip.dataset.rafIndex = String(i); const input = document.createElement('input'); input.type = 'text'; input.className = 'raf-tag-input'; input.value = item; input.placeholder = '请输入标签'; input.addEventListener('input', async (e) => { items[i] = e.target.value; syncModules(editable, state); await persist(editable); }); chip.appendChild(input); chip.appendChild(delBtn(async () => { items.splice(i, 1); syncModules(editable, state); await persist(editable); renderCurrentView(root, { preserveScroll: true }); })); wrap.appendChild(chip); }); section.appendChild(wrap); form.appendChild(section); }
-  function renderBullets(form, mod, state, editable, root) { const items = state[mod.key] || []; if (!items.length) items.push(''); const section = document.createElement('section'); section.className = 'raf-edit-section raf-lite-section'; section.appendChild(sectionHead(mod.label, '添加一条', async () => { items.push(''); syncModules(editable, state); await persist(editable); renderCurrentView(root, { focusTarget: { kind: 'bullet', module: mod.key, index: items.length - 1 } }); })); const list = document.createElement('div'); list.className = 'raf-inline-list'; items.forEach((item, i) => { const row = document.createElement('div'); row.className = 'raf-inline-row'; row.dataset.rafKind = 'bullet'; row.dataset.rafModule = mod.key; row.dataset.rafIndex = String(i); const input = document.createElement('input'); input.type = 'text'; input.className = 'raf-edit-input'; input.value = item; input.placeholder = `请输入${mod.label}`; input.addEventListener('input', async (e) => { items[i] = e.target.value; syncModules(editable, state); await persist(editable); }); row.appendChild(input); row.appendChild(delBtn(async () => { items.splice(i, 1); syncModules(editable, state); await persist(editable); renderCurrentView(root, { preserveScroll: true }); })); list.appendChild(row); }); section.appendChild(list); form.appendChild(section); }
-  function renderRecords(form, mod, state, editable, root) { const items = state[mod.key] || []; if (!items.length) items.push(Object.fromEntries(mod.fields.map((f) => [f.key, '']))); const section = document.createElement('section'); section.className = 'raf-edit-section raf-lite-section'; section.appendChild(sectionHead(mod.label, '添加一条', async () => { items.push(Object.fromEntries(mod.fields.map((f) => [f.key, '']))); syncModules(editable, state); await persist(editable); renderCurrentView(root, { focusTarget: { kind: 'record', module: mod.key, index: items.length - 1 } }); })); items.forEach((item, i) => { const entry = document.createElement('div'); entry.className = 'raf-edit-entry'; entry.dataset.rafKind = 'record'; entry.dataset.rafModule = mod.key; entry.dataset.rafIndex = String(i); const head = document.createElement('div'); head.className = 'raf-edit-entry-head'; const strong = document.createElement('strong'); strong.textContent = `${mod.label}${i + 1}`; head.appendChild(strong); head.appendChild(delBtn(async () => { items.splice(i, 1); syncModules(editable, state); await persist(editable); renderCurrentView(root, { preserveScroll: true }); })); entry.appendChild(head); const grid = document.createElement('div'); grid.className = 'raf-edit-grid'; mod.fields.forEach((field) => grid.appendChild(inputField(field, item[field.key], async (next) => { item[field.key] = next; syncModules(editable, state); await persist(editable); }))); entry.appendChild(grid); section.appendChild(entry); }); form.appendChild(section); }
-  function renderExperiences(form, editable, root) { EXP_GROUPS.forEach((group) => { const items = editable.experiences[group.key] || []; if (!items.length) items.push(Object.fromEntries(group.fields.map((field) => [field.key, '']))); const section = document.createElement('section'); section.className = 'raf-edit-section raf-lite-section'; section.appendChild(sectionHead(group.label, '添加一条', async () => { items.push(Object.fromEntries(group.fields.map((field) => [field.key, '']))); await persist(editable); renderCurrentView(root, { focusTarget: { kind: 'experience', group: group.key, index: items.length - 1 } }); })); items.forEach((item, i) => { const entry = document.createElement('div'); entry.className = 'raf-edit-entry'; entry.dataset.rafKind = 'experience'; entry.dataset.rafGroup = group.key; entry.dataset.rafIndex = String(i); const head = document.createElement('div'); head.className = 'raf-edit-entry-head'; const strong = document.createElement('strong'); strong.textContent = `${group.label}${i + 1}`; head.appendChild(strong); head.appendChild(delBtn(async () => { const idx = items.indexOf(item); if (idx >= 0) items.splice(idx, 1); await persist(editable); renderCurrentView(root, { preserveScroll: true }); })); entry.appendChild(head); const grid = document.createElement('div'); grid.className = 'raf-edit-grid'; group.fields.forEach((field) => grid.appendChild(inputField(field, item[field.key], async (next) => { item[field.key] = next; await persist(editable); }))); entry.appendChild(grid); section.appendChild(entry); }); form.appendChild(section); }); }
+  function renderTags(form, mod, state, editable, root) { const items = state[mod.key] || []; if (!items.length) items.push(''); const section = document.createElement('section'); section.className = 'raf-edit-section raf-lite-section'; section.appendChild(sectionHead(mod.label, '添加标签', async () => { items.push(''); syncModules(editable, state); await persist(editable); renderCurrentView(root, { focusTarget: { kind: 'tag', module: mod.key, index: items.length - 1 } }); })); const wrap = document.createElement('div'); wrap.className = 'raf-tag-list'; items.forEach((item, i) => { const chip = document.createElement('div'); chip.className = 'raf-tag-edit'; chip.dataset.rafKind = 'tag'; chip.dataset.rafModule = mod.key; chip.dataset.rafIndex = String(i); const input = document.createElement('input'); input.type = 'text'; input.className = 'raf-tag-input'; input.value = item; input.placeholder = '请输入标签'; input.addEventListener('input', async (e) => { items[i] = e.target.value; syncModules(editable, state); await persist(editable); }); chip.appendChild(input); chip.appendChild(delBtn(async () => { const fixedScrollTop = root.scrollTop; items.splice(i, 1); syncModules(editable, state); await persist(editable); renderCurrentView(root, { preserveScroll: true, scrollTop: fixedScrollTop }); })); wrap.appendChild(chip); }); section.appendChild(wrap); form.appendChild(section); }
+  function renderBullets(form, mod, state, editable, root) { const items = state[mod.key] || []; if (!items.length) items.push(''); const section = document.createElement('section'); section.className = 'raf-edit-section raf-lite-section'; section.appendChild(sectionHead(mod.label, '添加一条', async () => { items.push(''); syncModules(editable, state); await persist(editable); renderCurrentView(root, { focusTarget: { kind: 'bullet', module: mod.key, index: items.length - 1 } }); })); const list = document.createElement('div'); list.className = 'raf-inline-list'; items.forEach((item, i) => { const row = document.createElement('div'); row.className = 'raf-inline-row'; row.dataset.rafKind = 'bullet'; row.dataset.rafModule = mod.key; row.dataset.rafIndex = String(i); const input = document.createElement('input'); input.type = 'text'; input.className = 'raf-edit-input'; input.value = item; input.placeholder = `请输入${mod.label}`; input.addEventListener('input', async (e) => { items[i] = e.target.value; syncModules(editable, state); await persist(editable); }); row.appendChild(input); row.appendChild(delBtn(async () => { const fixedScrollTop = root.scrollTop; items.splice(i, 1); syncModules(editable, state); await persist(editable); renderCurrentView(root, { preserveScroll: true, scrollTop: fixedScrollTop }); })); list.appendChild(row); }); section.appendChild(list); form.appendChild(section); }
+  function renderRecords(form, mod, state, editable, root) { const items = state[mod.key] || []; if (!items.length) items.push(Object.fromEntries(mod.fields.map((f) => [f.key, '']))); const section = document.createElement('section'); section.className = 'raf-edit-section raf-lite-section'; section.appendChild(sectionHead(mod.label, '添加一条', async () => { items.push(Object.fromEntries(mod.fields.map((f) => [f.key, '']))); syncModules(editable, state); await persist(editable); renderCurrentView(root, { focusTarget: { kind: 'record', module: mod.key, index: items.length - 1 } }); })); items.forEach((item, i) => { const entry = document.createElement('div'); entry.className = 'raf-edit-entry'; entry.dataset.rafKind = 'record'; entry.dataset.rafModule = mod.key; entry.dataset.rafIndex = String(i); const head = document.createElement('div'); head.className = 'raf-edit-entry-head'; const strong = document.createElement('strong'); strong.textContent = `${mod.label}${i + 1}`; head.appendChild(strong); head.appendChild(delBtn(async () => { const fixedScrollTop = root.scrollTop; items.splice(i, 1); syncModules(editable, state); await persist(editable); renderCurrentView(root, { preserveScroll: true, scrollTop: fixedScrollTop }); })); entry.appendChild(head); const grid = document.createElement('div'); grid.className = 'raf-edit-grid'; mod.fields.forEach((field) => grid.appendChild(inputField(field, item[field.key], async (next) => { item[field.key] = next; syncModules(editable, state); await persist(editable); }))); entry.appendChild(grid); section.appendChild(entry); }); form.appendChild(section); }
+  function renderExperiences(form, editable, root) { EXP_GROUPS.forEach((group) => { const items = editable.experiences[group.key] || []; if (!items.length) items.push(Object.fromEntries(group.fields.map((field) => [field.key, '']))); const section = document.createElement('section'); section.className = 'raf-edit-section raf-lite-section'; section.appendChild(sectionHead(group.label, '添加一条', async () => { items.push(Object.fromEntries(group.fields.map((field) => [field.key, '']))); await persist(editable); renderCurrentView(root, { focusTarget: { kind: 'experience', group: group.key, index: items.length - 1 } }); })); items.forEach((item, i) => { const entry = document.createElement('div'); entry.className = 'raf-edit-entry'; entry.dataset.rafKind = 'experience'; entry.dataset.rafGroup = group.key; entry.dataset.rafIndex = String(i); const head = document.createElement('div'); head.className = 'raf-edit-entry-head'; const strong = document.createElement('strong'); strong.textContent = `${group.label}${i + 1}`; head.appendChild(strong); head.appendChild(delBtn(async () => { const fixedScrollTop = root.scrollTop; const idx = items.indexOf(item); if (idx >= 0) items.splice(idx, 1); await persist(editable); renderCurrentView(root, { preserveScroll: true, scrollTop: fixedScrollTop }); })); entry.appendChild(head); const grid = document.createElement('div'); grid.className = 'raf-edit-grid'; group.fields.forEach((field) => grid.appendChild(inputField(field, item[field.key], async (next) => { item[field.key] = next; await persist(editable); }))); entry.appendChild(grid); section.appendChild(entry); }); form.appendChild(section); }); }
   function renderEditTools(form, root) {
     const section = document.createElement('section');
     section.className = 'raf-edit-section raf-edit-tools';
@@ -594,8 +688,9 @@
     section.appendChild(row);
     form.appendChild(section);
   }
-  async function renderEditView(root) {
+  async function renderEditView(root, nonce) {
     const { editable } = await getState();
+    if (nonce !== renderNonce) return;
     const state = moduleState(editable);
     const form = document.createElement('div');
     form.className = 'raf-edit-view';
@@ -621,15 +716,19 @@
       else renderRecords(form, mod, state, editable, root);
     });
 
+    if (nonce !== renderNonce) return;
     root.appendChild(form);
   }
   async function renderCurrentView(root, options = {}) {
     listRoot = root;
-    const previousScrollTop = options.preserveScroll ? root.scrollTop : 0;
+    const nonce = ++renderNonce;
+    const previousScrollTop = options.preserveScroll ? (typeof options.scrollTop === 'number' ? options.scrollTop : root.scrollTop) : 0;
     root.innerHTML = '';
-    if (currentView === 'edit') await renderEditView(root); else await renderPreviewView(root);
+    if (currentView === 'edit') await renderEditView(root, nonce); else await renderPreviewView(root, nonce);
+    if (nonce !== renderNonce) return;
     if (options.focusTarget) {
       requestAnimationFrame(() => {
+        if (nonce !== renderNonce) return;
         const selector = focusTargetSelector(options.focusTarget);
         const target = selector ? root.querySelector(selector) : null;
         if (target) {
@@ -641,6 +740,7 @@
       });
     } else if (options.preserveScroll) {
       requestAnimationFrame(() => {
+        if (nonce !== renderNonce) return;
         root.scrollTop = Math.min(previousScrollTop, Math.max(0, root.scrollHeight - root.clientHeight));
       });
     }

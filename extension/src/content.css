@@ -269,15 +269,71 @@
     linear-gradient(180deg, rgba(15, 23, 42, 0.12), rgba(2, 6, 23, 0.18));
   box-sizing: border-box;
   scrollbar-gutter: stable both-edges;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(148, 163, 184, 0.62) transparent;
 }
 
 #resume-autofill-panel .raf-list::-webkit-scrollbar {
-  width: 8px;
+  -webkit-appearance: none;
+  appearance: none;
+  width: 6px;
+  height: 6px;
+  background: transparent;
+}
+
+#resume-autofill-panel .raf-list::-webkit-scrollbar-track {
+  -webkit-appearance: none;
+  appearance: none;
+  background: transparent;
+  border: none;
+  box-shadow: none;
+}
+
+#resume-autofill-panel .raf-list::-webkit-scrollbar-button {
+  -webkit-appearance: none;
+  appearance: none;
+  display: none !important;
+  width: 0 !important;
+  height: 0 !important;
+  min-width: 0 !important;
+  min-height: 0 !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  background: transparent;
+  border: 0;
+}
+
+#resume-autofill-panel .raf-list::-webkit-scrollbar-corner {
+  -webkit-appearance: none;
+  appearance: none;
+  background: transparent;
+  display: none !important;
+}
+
+#resume-autofill-panel .raf-list::-webkit-scrollbar-track-piece {
+  -webkit-appearance: none;
+  appearance: none;
+  background: transparent;
+  border: 0;
+}
+
+#resume-autofill-panel .raf-list::-webkit-resizer {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 0 !important;
+  height: 0 !important;
+  display: none !important;
+  background: transparent;
 }
 
 #resume-autofill-panel .raf-list::-webkit-scrollbar-thumb {
-  background: rgba(148, 163, 184, 0.45);
+  background: rgba(148, 163, 184, 0.62);
   border-radius: 999px;
+  border: none;
+}
+
+#resume-autofill-panel .raf-list::-webkit-scrollbar-thumb:hover {
+  background: rgba(100, 116, 139, 0.78);
 }
 
 #resume-autofill-panel .raf-group-title {
@@ -529,13 +585,66 @@
   font-size: 13px;
   line-height: 1.4;
   padding: 10px 12px;
-  resize: vertical;
+  resize: none;
   min-height: 40px;
   box-sizing: border-box;
 }
 
+#resume-autofill-panel .raf-textarea-shell {
+  position: relative;
+  width: 100%;
+}
+
 #resume-autofill-panel textarea.raf-edit-input {
   min-height: 84px;
+  padding-right: 18px;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+#resume-autofill-panel textarea.raf-edit-input::-webkit-scrollbar {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 0 !important;
+  height: 0 !important;
+}
+
+#resume-autofill-panel .raf-textarea-thumb {
+  position: absolute;
+  right: 4px;
+  top: 0;
+  width: 5px;
+  min-height: 20px;
+  border-radius: 999px;
+  background: rgba(148, 163, 184, 0.66);
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.22);
+  opacity: 0;
+  transition: background 0.18s ease, opacity 0.18s ease;
+  pointer-events: auto;
+  z-index: 2;
+}
+
+#resume-autofill-panel .raf-textarea-shell:hover .raf-textarea-thumb {
+  background: rgba(100, 116, 139, 0.82);
+}
+
+#resume-autofill-panel .raf-textarea-thumb:hover {
+  background: rgba(71, 85, 105, 0.9);
+}
+
+#resume-autofill-panel textarea.raf-edit-input::-webkit-scrollbar-track,
+#resume-autofill-panel textarea.raf-edit-input::-webkit-scrollbar-button,
+#resume-autofill-panel textarea.raf-edit-input::-webkit-scrollbar-corner,
+#resume-autofill-panel textarea.raf-edit-input::-webkit-scrollbar-track-piece,
+#resume-autofill-panel textarea.raf-edit-input::-webkit-resizer {
+  display: none !important;
+  width: 0 !important;
+  height: 0 !important;
+  background: transparent !important;
+  border: 0 !important;
+  box-shadow: none !important;
 }
 
 #resume-autofill-panel .raf-edit-card {
@@ -560,7 +669,12 @@
 }
 
 #resume-autofill-panel .raf-link-btn {
-  padding: 6px 10px;
+  padding: 0 10px;
+  min-width: 52px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
   background: rgba(255, 244, 244, 0.92);
   color: #a63b3b;
 }

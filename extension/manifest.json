@@ -1,12 +1,12 @@
 ﻿{
   "manifest_version": 3,
-  "name": "chauny简历助手",
+  "name": "Chauny后仰跳投",
   "version": "0.1.1",
-  "description": "chauny简历助手：导入 Word 简历并按模板展示与填充",
+  "description": "简历助手/投递简历：导入Word(docx)自动解析，结构化拆分项目/实习/教育，一键复制粘贴填写（京东等招聘表单）",
   "permissions": ["storage", "activeTab", "scripting", "clipboardWrite"],
   "host_permissions": ["<all_urls>"],
   "action": {
-    "default_title": "chauny简历助手"
+    "default_title": "Chauny后仰跳投"
   },
   "background": {
     "service_worker": "src/background.js"
