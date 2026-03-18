@@ -15,7 +15,8 @@
   { key: "major", label: "专业" },
   { key: "degree", label: "学历" },
   { key: "educationStart", label: "入学时间" },
-  { key: "educationEnd", label: "毕业时间" }
+  { key: "educationEnd", label: "毕业时间" },
+  { key: "mainCourses", label: "主修课程" }
 ];
 
 function pickByRegex(text, regex) {
@@ -42,7 +43,31 @@ function splitBlocks(text) {
     .filter(Boolean);
 }
 
+const EDUCATION_HINT = /(教育经历|学校|学院|专业|学历|主修课程|入学时间|毕业时间|本科|硕士|博士|专科|研究生)/;
+
+function parseInlineEducation(line) {
+  const clean = String(line || "").replace(/\s+/g, " ").trim();
+  if (!clean || !EDUCATION_HINT.test(clean)) return null;
+  const dates = [...clean.matchAll(/(20\d{2}[./-]\d{1,2}(?:[./-]\d{1,2})?)/g)].map((m) => normalizeDate(m[1]));
+  const schoolMatch = clean.match(/((?:[\u4e00-\u9fa5A-Za-z0-9]+(?:大学|学院|学校|职业技术学院|职业学院|中学)))/);
+  const degreeMatch = clean.match(/(博士研究生|硕士研究生|本科|硕士|博士|大专|专科)/);
+  let major = "";
+  if (schoolMatch) {
+    const afterSchool = clean.slice(clean.indexOf(schoolMatch[1]) + schoolMatch[1].length).trim();
+    const majorMatch = afterSchool.match(/([\u4e00-\u9fa5A-Za-z0-9()/\-]+(?:专业|方向|技术|工程|设计|管理|媒体|科学|文学|法学|经济学|教育|数学|统计|传播|计算机|英语|智能|艺术)?(?:本科|硕士|博士)?)/);
+    major = (majorMatch?.[1] || "").replace(/^(教育经历|学历)\s*/, "").trim();
+  }
+  return {
+    school: schoolMatch?.[1] || "",
+    degree: degreeMatch?.[1] || "",
+    major,
+    educationStart: dates[0] || "",
+    educationEnd: dates[1] || ""
+  };
+}
+
 function detectExpType(line) {
+  if (/(自主项目|个人项目|side project)/i.test(line)) return "project";
   if (/项目/.test(line)) return "project";
   if (/实习/.test(line)) return "internship";
   if (/工作|任职|公司/.test(line)) return "work";
@@ -59,9 +84,11 @@ function normalizeExperience(experience) {
   const period = experience.period || "";
   const start = experience.start || normalizeDate((period.match(/(\d{4}[.-]\d{1,2})/) || [])[1] || "");
   const endRaw = (period.match(/-(\d{4}[.-]\d{1,2}|至今|present)/i) || [])[1] || "";
+  const forcedProject = /(自主项目|个人项目|side project)/i.test(`${experience.title || ""} ${experience.company || ""} ${experience.role || ""} ${experience.description || ""}`);
+  const finalType = forcedProject ? "project" : (experience.type || "project");
   return {
-    type: experience.type || "project",
-    typeLabel: prettyType(experience.type || "project"),
+    type: finalType,
+    typeLabel: prettyType(finalType),
     title: experience.title || "",
     company: experience.company || "",
     role: experience.role || "",
@@ -78,6 +105,7 @@ function extractExperiences(text) {
   let current = null;
 
   for (const line of lines) {
+    if (EDUCATION_HINT.test(line)) continue;
     if (/(项目经历|实习经历|工作经历)/.test(line)) {
       currentType = detectExpType(line);
       if (current && (current.company || current.role || current.description || current.title)) {
@@ -89,6 +117,7 @@ function extractExperiences(text) {
 
     const titleMatch = line.match(/^(\d{4}[.-]\d{1,2}.*?)(?:\s{2,}|\t+)(.+?)(?:\s{2,}|\t+)(.+)$/);
     if (titleMatch) {
+      if (EDUCATION_HINT.test(titleMatch[2]) || EDUCATION_HINT.test(titleMatch[3])) continue;
       if (current && (current.company || current.role || current.description || current.title)) {
         experiences.push(normalizeExperience(current));
       }
@@ -143,13 +172,17 @@ function extractEducation(text) {
     college: pickByRegex(text, /学院[:：]\s*([^\n]+)/),
     major: pickByRegex(text, /(?:专业|详细专业)[:：]\s*([^\n]+)/),
     degree: pickByRegex(text, /学历[:：]\s*([^\n]+)/),
-    educationStart: normalizeDate(pickByRegex(text, /(?:入学时间|开始时间)[:：]\s*([^\n]+)/)),
-    educationEnd: normalizeDate(pickByRegex(text, /(?:毕业时间|结束时间)[:：]\s*([^\n]+)/))
+    educationStart: normalizeDate(pickByRegex(text, /入学时间[:：]\s*([^\n]+)/)),
+    educationEnd: normalizeDate(pickByRegex(text, /毕业时间[:：]\s*([^\n]+)/)),
+    mainCourses: pickByRegex(text, /主修课程[:：]\s*([^\n]+)/)
   };
 
-  const dateMatches = [...text.matchAll(/(20\d{2}[.-]\d{1,2}(?:[.-]\d{1,2})?)/g)].map((m) => normalizeDate(m[1]));
-  if (!edu.educationStart && dateMatches[0]) edu.educationStart = dateMatches[0];
-  if (!edu.educationEnd && dateMatches[1]) edu.educationEnd = dateMatches[1];
+  const inline = parseInlineEducation(text);
+  if (!edu.school && inline?.school) edu.school = inline.school;
+  if (!edu.major && inline?.major) edu.major = inline.major;
+  if (!edu.degree && inline?.degree) edu.degree = inline.degree;
+  if (!edu.educationStart && inline?.educationStart) edu.educationStart = inline.educationStart;
+  if (!edu.educationEnd && inline?.educationEnd) edu.educationEnd = inline.educationEnd;
 
   return edu;
 }
@@ -200,18 +233,32 @@ export function flattenForFill(parsed) {
     const i = grouped[type];
     const keyPrefix = `${type}_${i}`;
     const blockLabel = `${experience.typeLabel}${i}`;
+    const projectChildren = [
+      { key: `${keyPrefix}_title`, label: "项目名称", value: experience.title || experience.company || "" },
+      { key: `${keyPrefix}_role`, label: "角色", value: experience.role || "" },
+      { key: `${keyPrefix}_start`, label: "开始时间", value: experience.start || "" },
+      { key: `${keyPrefix}_end`, label: "结束时间", value: experience.end || "" },
+      { key: `${keyPrefix}_description`, label: "描述", value: experience.description || "" }
+    ];
+    const internshipChildren = [
+      { key: `${keyPrefix}_company`, label: "公司名称", value: experience.company || "" },
+      { key: `${keyPrefix}_role`, label: "职位", value: experience.role || "" },
+      { key: `${keyPrefix}_start`, label: "开始时间", value: experience.start || "" },
+      { key: `${keyPrefix}_end`, label: "结束时间", value: experience.end || "" },
+      { key: `${keyPrefix}_description`, label: "描述", value: experience.description || "" }
+    ];
+    const workChildren = [
+      { key: `${keyPrefix}_company`, label: "公司名称", value: experience.company || "" },
+      { key: `${keyPrefix}_role`, label: "职位", value: experience.role || "" },
+      { key: `${keyPrefix}_start`, label: "开始时间", value: experience.start || "" },
+      { key: `${keyPrefix}_end`, label: "结束时间", value: experience.end || "" },
+      { key: `${keyPrefix}_description`, label: "描述", value: experience.description || "" }
+    ];
     result.push({
       key: `${keyPrefix}_block`,
       label: blockLabel,
       group: true,
-      children: [
-        { key: `${keyPrefix}_title`, label: "项目名称", value: experience.title || "" },
-        { key: `${keyPrefix}_company`, label: "公司名称", value: experience.company || "" },
-        { key: `${keyPrefix}_role`, label: "职位", value: experience.role || "" },
-        { key: `${keyPrefix}_start`, label: "开始时间", value: experience.start || "" },
-        { key: `${keyPrefix}_end`, label: "结束时间", value: experience.end || "" },
-        { key: `${keyPrefix}_description`, label: "描述", value: experience.description || "" }
-      ]
+      children: type === "project" ? projectChildren : type === "internship" ? internshipChildren : workChildren
     });
   });
 

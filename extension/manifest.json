@@ -1,12 +1,12 @@
 ﻿{
   "manifest_version": 3,
-  "name": "chaunyoffer",
+  "name": "chauny简历助手",
   "version": "0.1.1",
-  "description": "chaunyoffer：导入 Word 简历并按模板展示与填充",
+  "description": "chauny简历助手：导入 Word 简历并按模板展示与填充",
   "permissions": ["storage", "activeTab", "scripting", "clipboardWrite"],
   "host_permissions": ["<all_urls>"],
   "action": {
-    "default_title": "chaunyoffer"
+    "default_title": "chauny简历助手"
   },
   "background": {
     "service_worker": "src/background.js"
