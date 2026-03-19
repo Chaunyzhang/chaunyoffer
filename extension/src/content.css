@@ -30,6 +30,7 @@
   --raf-head-height: 62px;
   --raf-drag-height: 120px;
   --raf-list-bottom-pad: 14px;
+  --raf-glass-color-level: 20;
   position: fixed;
   z-index: 2147483647;
   width: var(--raf-panel-width);
@@ -59,7 +60,7 @@
   background: transparent;
   color: var(--raf-head-fg);
   cursor: move;
-  pointer-events: none;
+  pointer-events: auto;
 }
 
 #resume-autofill-panel .raf-drag-blur {
@@ -101,6 +102,7 @@
   align-items: center;
   gap: 0;
   width: 100%;
+  pointer-events: none;
 }
 
 #resume-autofill-panel .raf-brand {
@@ -734,7 +736,11 @@
   border: 1px solid rgba(255, 255, 255, 0.52);
   border-radius: 22px;
   background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.78), rgba(238, 248, 255, 0.62));
+    linear-gradient(
+      180deg,
+      hsla(210, calc(var(--raf-glass-color-level) * 0.01%), 98%, 0.78),
+      hsla(210, calc(var(--raf-glass-color-level) * 0.01%), 94%, 0.62)
+    );
   box-shadow:
     0 10px 30px rgba(120, 160, 190, 0.2),
     inset 0 1px 0 rgba(255, 255, 255, 0.78);
@@ -746,17 +752,29 @@
 
 #resume-autofill-panel .raf-edit-view > .raf-edit-section:nth-child(3n + 1) {
   background:
-    linear-gradient(180deg, rgba(238, 248, 255, 0.82), rgba(227, 241, 250, 0.62));
+    linear-gradient(
+      180deg,
+      hsla(356, calc(var(--raf-glass-color-level) * 0.01%), 96%, 0.82),
+      hsla(356, calc(var(--raf-glass-color-level) * 0.01%), 92%, 0.62)
+    );
 }
 
 #resume-autofill-panel .raf-edit-view > .raf-edit-section:nth-child(3n + 2) {
   background:
-    linear-gradient(180deg, rgba(245, 246, 255, 0.82), rgba(234, 236, 248, 0.64));
+    linear-gradient(
+      180deg,
+      hsla(214, calc(var(--raf-glass-color-level) * 0.01%), 96%, 0.82),
+      hsla(214, calc(var(--raf-glass-color-level) * 0.01%), 92%, 0.64)
+    );
 }
 
 #resume-autofill-panel .raf-edit-view > .raf-edit-section:nth-child(3n) {
   background:
-    linear-gradient(180deg, rgba(246, 252, 247, 0.82), rgba(236, 245, 239, 0.64));
+    linear-gradient(
+      180deg,
+      hsla(148, calc(var(--raf-glass-color-level) * 0.01%), 96%, 0.82),
+      hsla(148, calc(var(--raf-glass-color-level) * 0.01%), 92%, 0.64)
+    );
 }
 
 #resume-autofill-panel .raf-edit-grid {

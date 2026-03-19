@@ -10,6 +10,7 @@
   const OPACITY_KEY = 'rafPanelOpacity';
   const WIDTH_KEY = 'rafPanelWidth';
   const HEIGHT_KEY = 'rafPanelHeight';
+  const GLASS_SAT_KEY = 'rafGlassSaturation';
   const PANEL_WIDTH_BASE = 410;
   const PANEL_WIDTH_PERCENT_MIN = 85;
   const PANEL_WIDTH_PERCENT_MAX = 150;
@@ -56,7 +57,7 @@
     { key:'otherInfo', label:'其他扩展字段', kind:'bullets' }
   ].map((m) => m.fields ? ({ ...m, fields: m.fields.map(([key,label,type]) => ({ key, label, type })) }) : m);
 
-  let panelVisible = false, pinned = true, currentView = 'preview', drag = null, lastActiveEditable = null, listRoot = null, panelBrightness = 100, panelOpacity = 0, panelWidthPercent = 100, panelHeightPercent = 100;
+  let panelVisible = false, pinned = true, currentView = 'preview', drag = null, lastActiveEditable = null, listRoot = null, panelBrightness = 100, panelOpacity = 0, panelWidthPercent = 100, panelHeightPercent = 100, glassSaturation = 20;
   let renderNonce = 0;
   let skipStorageRenderCount = 0;
   let importDebug = [];
@@ -370,6 +371,12 @@
   function updatePanelVisibility() { const panel = document.getElementById(PANEL_ID); if (panel) panel.style.display = panelVisible ? 'block' : 'none'; }
   function applyPanelBrightness(panel, value) { panelBrightness = Math.max(70, Math.min(130, Number(value) || 100)); if (panel) panel.style.setProperty('--raf-panel-brightness', `${panelBrightness}%`); }
   function applyPanelOpacity(panel, value) { panelOpacity = Math.max(0, Math.min(100, Number(value) || 0)); if (panel) panel.style.setProperty('--raf-surface-opacity-level', String(panelOpacity / 100)); }
+  function applyGlassSaturation(panel, value) {
+    const parsed = Number(value);
+    glassSaturation = Math.max(0, Math.min(10000, Number.isFinite(parsed) ? parsed : 20));
+    if (!panel) return;
+    panel.style.setProperty('--raf-glass-color-level', String(glassSaturation));
+  }
   function syncPanelLayout(panel) {
     if (!panel) return;
     const head = panel.querySelector('.raf-head');
@@ -696,6 +703,32 @@
     opacityRow.appendChild(opacityControl);
     panelSection.appendChild(opacityRow);
 
+    const satRow = document.createElement('div');
+    satRow.className = 'raf-setting-row';
+    const satMeta = document.createElement('div');
+    satMeta.className = 'raf-setting-meta';
+    satMeta.innerHTML = `<strong>玻璃色彩饱和度</strong>`;
+    satRow.appendChild(satMeta);
+    const satControl = document.createElement('div');
+    satControl.className = 'raf-setting-control';
+    const satSlider = document.createElement('input');
+    satSlider.type = 'range';
+    satSlider.min = '0';
+    satSlider.max = '10000';
+    satSlider.step = '1';
+    satSlider.value = String(glassSaturation);
+    satSlider.className = 'raf-slider';
+    satSlider.addEventListener('input', (e) => {
+      applyGlassSaturation(document.getElementById(PANEL_ID), Number(e.target.value));
+    });
+    satSlider.addEventListener('change', async (e) => {
+      applyGlassSaturation(document.getElementById(PANEL_ID), Number(e.target.value));
+      await chrome.storage.local.set({ [GLASS_SAT_KEY]: glassSaturation });
+    });
+    satControl.appendChild(satSlider);
+    satRow.appendChild(satControl);
+    panelSection.appendChild(satRow);
+
     const widthRow = document.createElement('div');
     widthRow.className = 'raf-setting-row';
     const widthMeta = document.createElement('div');
@@ -969,7 +1002,7 @@
       });
     }
   }
-  async function savePanelState(panel) { await chrome.storage.local.set({ [PIN_KEY]: pinned, [POS_KEY]: { left: panel.style.left, top: panel.style.top }, [VIEW_KEY]: currentView, [BRIGHTNESS_KEY]: panelBrightness, [OPACITY_KEY]: panelOpacity, [WIDTH_KEY]: panelWidthPercent, [HEIGHT_KEY]: panelHeightPercent }); }
+  async function savePanelState(panel) { await chrome.storage.local.set({ [PIN_KEY]: pinned, [POS_KEY]: { left: panel.style.left, top: panel.style.top }, [VIEW_KEY]: currentView, [BRIGHTNESS_KEY]: panelBrightness, [OPACITY_KEY]: panelOpacity, [WIDTH_KEY]: panelWidthPercent, [HEIGHT_KEY]: panelHeightPercent, [GLASS_SAT_KEY]: glassSaturation }); }
   async function applyPinState(panel, checked) { pinned = checked; panel.style.position = pinned ? 'fixed' : 'absolute'; if (!pinned) panel.style.top = `${window.scrollY + 90}px`; await savePanelState(panel); }
   async function ensurePanel() {
     let panel = document.getElementById(PANEL_ID);
@@ -1002,13 +1035,18 @@
       closeEl.setAttribute('aria-pressed', 'false');
     };
 
-    const stored = await chrome.storage.local.get([PIN_KEY, POS_KEY, VIEW_KEY, BRIGHTNESS_KEY, OPACITY_KEY, WIDTH_KEY, HEIGHT_KEY]);
+    const stored = await chrome.storage.local.get([PIN_KEY, POS_KEY, VIEW_KEY, BRIGHTNESS_KEY, OPACITY_KEY, WIDTH_KEY, HEIGHT_KEY, GLASS_SAT_KEY]);
     if (stored[POS_KEY]?.left) panel.style.left = stored[POS_KEY].left;
     if (stored[POS_KEY]?.top) panel.style.top = stored[POS_KEY].top;
     pinned = stored[PIN_KEY] !== false;
     currentView = stored[VIEW_KEY] || 'preview';
+    {
+      const parsedGlassSat = Number(stored[GLASS_SAT_KEY]);
+      glassSaturation = Math.max(0, Math.min(10000, Number.isFinite(parsedGlassSat) ? parsedGlassSat : 20));
+    }
     applyPanelBrightness(panel, stored[BRIGHTNESS_KEY] ?? 100);
     applyPanelOpacity(panel, stored[OPACITY_KEY] ?? 0);
+    applyGlassSaturation(panel, glassSaturation);
     applyPanelSize(panel, stored[WIDTH_KEY] ?? 100, stored[HEIGHT_KEY] ?? 100);
     syncPanelLayout(panel);
     applyToolbarByView();
