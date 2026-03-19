@@ -368,7 +368,12 @@
   async function copyValue(value) { try { await navigator.clipboard.writeText(value); return true; } catch { try { const ta = document.createElement('textarea'); ta.value = value; ta.style.position = 'fixed'; ta.style.left = '-9999px'; document.body.appendChild(ta); ta.focus(); ta.select(); document.execCommand('copy'); ta.remove(); return true; } catch { return false; } } }
   function toast(msg, isError = false) { const tip = document.createElement('div'); tip.className = `raf-tip${isError ? ' err' : ''}`; tip.textContent = msg; document.body.appendChild(tip); setTimeout(() => tip.remove(), 1800); }
   function setImportDebug(lines) { importDebug = lines; if (listRoot && currentView === 'preview') renderCurrentView(listRoot, { preserveScroll: true }); }
-  function updatePanelVisibility() { const panel = document.getElementById(PANEL_ID); if (panel) panel.style.display = panelVisible ? 'block' : 'none'; }
+  function updatePanelVisibility() {
+    const panel = document.getElementById(PANEL_ID);
+    if (!panel) return;
+    panel.style.display = panelVisible ? 'block' : 'none';
+    if (panelVisible) clampPanelIntoViewport(panel);
+  }
   function applyPanelBrightness(panel, value) { panelBrightness = Math.max(70, Math.min(130, Number(value) || 100)); if (panel) panel.style.setProperty('--raf-panel-brightness', `${panelBrightness}%`); }
   function applyPanelOpacity(panel, value) { panelOpacity = Math.max(0, Math.min(100, Number(value) || 0)); if (panel) panel.style.setProperty('--raf-surface-opacity-level', String(panelOpacity / 100)); }
   function applyGlassSaturation(panel, value) {
@@ -383,6 +388,22 @@
     if (!head) return;
     const headHeight = head.offsetHeight || 98;
     panel.style.setProperty('--raf-head-height', `${headHeight}px`);
+  }
+  function clampPanelIntoViewport(panel) {
+    if (!panel) return;
+    const rect = panel.getBoundingClientRect();
+    const margin = 8;
+    const isFixed = panel.style.position !== 'absolute';
+    const minLeft = margin;
+    const maxLeft = Math.max(minLeft, window.innerWidth - rect.width - margin);
+    const minTop = isFixed ? margin : window.scrollY + margin;
+    const maxTop = isFixed
+      ? Math.max(minTop, window.innerHeight - rect.height - margin)
+      : Math.max(minTop, window.scrollY + window.innerHeight - rect.height - margin);
+    const left = Math.max(minLeft, Math.min(maxLeft, panel.offsetLeft));
+    const top = Math.max(minTop, Math.min(maxTop, panel.offsetTop));
+    panel.style.left = `${left}px`;
+    panel.style.top = `${top}px`;
   }
   function normalizeWidthPercent(value) {
     const numeric = Number(value);
@@ -1003,7 +1024,17 @@
     }
   }
   async function savePanelState(panel) { await chrome.storage.local.set({ [PIN_KEY]: pinned, [POS_KEY]: { left: panel.style.left, top: panel.style.top }, [VIEW_KEY]: currentView, [BRIGHTNESS_KEY]: panelBrightness, [OPACITY_KEY]: panelOpacity, [WIDTH_KEY]: panelWidthPercent, [HEIGHT_KEY]: panelHeightPercent, [GLASS_SAT_KEY]: glassSaturation }); }
-  async function applyPinState(panel, checked) { pinned = checked; panel.style.position = pinned ? 'fixed' : 'absolute'; if (!pinned) panel.style.top = `${window.scrollY + 90}px`; await savePanelState(panel); }
+  async function applyPinState(panel, checked) {
+    const rect = panel.getBoundingClientRect();
+    pinned = checked;
+    panel.style.position = pinned ? 'fixed' : 'absolute';
+    if (!pinned) {
+      panel.style.left = `${rect.left}px`;
+      panel.style.top = `${rect.top + window.scrollY}px`;
+    }
+    clampPanelIntoViewport(panel);
+    await savePanelState(panel);
+  }
   async function ensurePanel() {
     let panel = document.getElementById(PANEL_ID);
     if (panel) return panel;
@@ -1021,6 +1052,7 @@
     const closeEl = panel.querySelector('#raf-close');
     const previewTab = panel.querySelector('#raf-preview-tab');
     const editTab = panel.querySelector('#raf-edit-tab');
+    const modeGroup = panel.querySelector('.raf-mode-group');
     const applyToolbarByView = () => {
       const isSettings = currentView === 'settings';
       const isEdit = currentView === 'edit';
@@ -1098,9 +1130,17 @@
     editTab.addEventListener('mousedown', (e) => e.stopPropagation());
     pinBtn.addEventListener('mousedown', (e) => e.stopPropagation());
 
-    dragBlur.addEventListener('mousedown', (e) => {
+    const beginDrag = (e) => {
       drag = { x: e.clientX, y: e.clientY, left: panel.offsetLeft, top: panel.offsetTop };
+      document.body.style.userSelect = 'none';
+      document.body.style.webkitUserSelect = 'none';
       e.preventDefault();
+    };
+
+    dragBlur.addEventListener('mousedown', beginDrag);
+    modeGroup?.addEventListener('mousedown', (e) => {
+      if (e.target !== modeGroup) return;
+      beginDrag(e);
     });
     document.addEventListener('mousemove', (e) => {
       if (!drag) return;
@@ -1110,9 +1150,14 @@
     document.addEventListener('mouseup', async () => {
       if (!drag) return;
       drag = null;
+      document.body.style.userSelect = '';
+      document.body.style.webkitUserSelect = '';
       await savePanelState(panel);
     });
-    window.addEventListener('resize', () => syncPanelLayout(panel));
+    window.addEventListener('resize', () => {
+      syncPanelLayout(panel);
+      clampPanelIntoViewport(panel);
+    });
     return panel;
   }
   await ensurePanel();

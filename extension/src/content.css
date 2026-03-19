@@ -145,6 +145,8 @@
   backdrop-filter: blur(15px) saturate(170%);
   -webkit-backdrop-filter: blur(15px) saturate(170%);
   overflow: hidden;
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 #resume-autofill-panel .raf-mode-group::before {
