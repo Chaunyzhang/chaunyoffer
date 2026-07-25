@@ -20,6 +20,7 @@
   const AI_ENABLED_KEY = 'rafAiEnabled';
   const AI_MODEL_KEY = 'rafAiModel';
   const AI_MODEL_DEFAULT = 'deepseek-v4-pro';
+  const AUTOFILL_KEY = 'rafAutofillEnabled';
   const PANEL_WIDTH_BASE = 410;
   const PANEL_WIDTH_PERCENT_MIN = 85;
   const PANEL_WIDTH_PERCENT_MAX = 150;
@@ -67,7 +68,7 @@
     { key:'otherInfo', label:'其他扩展字段', kind:'bullets' }
   ].map((m) => m.fields ? ({ ...m, fields: m.fields.map(([key,label,type]) => ({ key, label, type })) }) : m);
 
-  let panelVisible = false, pinned = true, currentView = 'preview', drag = null, lastActiveEditable = null, listRoot = null, panelBrightness = 100, panelOpacity = 0, panelWidthPercent = 100, panelHeightPercent = 100, glassSaturation = 20;
+  let panelVisible = false, pinned = true, currentView = 'preview', drag = null, lastActiveEditable = null, listRoot = null, panelBrightness = 100, panelOpacity = 0, panelWidthPercent = 100, panelHeightPercent = 100, glassSaturation = 20, autofillEnabled = false;
   let renderNonce = 0;
   let skipStorageRenderCount = 0;
   let importDebug = [];
@@ -914,6 +915,546 @@
       requestAnimationFrame(() => syncPanelLayout(panel));
     }
   }
+  // ===== 自动填充：扫描页面表单 → 本地关键词匹配 → AI 兜底 → 写入并高亮 =====
+  const AUTOFILL_FILL_CLASS = 'raf-autofill-filled';
+  const AUTOFILL_MISS_CLASS = 'raf-autofill-missed';
+  // 命中时取「最长关键词」得分最高的规则；分数相同排前面的规则优先
+  const AUTOFILL_RULES = [
+    { key: 'emergencyPhone', words: ['紧急联系电话', '紧急联系方式'] },
+    { key: 'emergencyContact', words: ['紧急联系人'] },
+    { key: 'idType', words: ['证件类型'] },
+    { key: 'idNumber', words: ['证件号码', '证件号', '身份证号', '身份证', 'idnumber', 'id number'] },
+    { key: 'phone', words: ['手机号码', '手机号', '联系电话', '联系方式', '电话', '手机', 'mobile', 'phone', 'tel'], block: ['紧急', '证明'] },
+    { key: 'email', words: ['电子邮箱', '电子邮件', '邮箱', 'email', 'e-mail', 'mail'] },
+    { key: 'name', words: ['真实姓名', '姓名', '名字', 'fullname', 'full name', 'realname', 'name'], block: ['用户名', '昵称', 'nickname', 'username', '公司', '企业', '学校', 'company', 'school', '项目', 'project', '紧急', '证明', '联系人', '导师'] },
+    { key: 'gender', words: ['性别', 'gender', 'sex'] },
+    { key: 'birthday', words: ['出生日期', '出生年月', '生日', '出生', 'birthday', 'birth', 'date of birth'] },
+    { key: 'nativePlace', words: ['籍贯'] },
+    { key: 'politicalStatus', words: ['政治面貌'] },
+    { key: 'expectedCity', words: ['期望城市', '意向城市', '工作城市'] },
+    { key: 'city', words: ['所在城市', '现居城市', '居住城市', '城市', 'city', 'location'] },
+    { key: 'address', words: ['现居地址', '居住地址', '详细地址', '通讯地址', '联系地址', '地址', 'address'] },
+    { key: 'expectedSalary', words: ['期望薪资', '薪资要求', '期望月薪', '期望年薪', '薪资', '月薪', '年薪', 'salary'] },
+    { key: 'availableDate', words: ['最早可入职', '可入职时间', '可到岗时间', '期望入职时间', '到岗时间', '最快到岗', '可到岗'] },
+    { key: 'jobIntent', words: ['求职意向', '意向岗位', '意向职位', '期望职位', '应聘职位', '应聘岗位', '申请职位'] },
+    { key: 'degree', words: ['最高学历', '学历', '学位', 'degree'] },
+    { key: 'school', words: ['毕业院校', '毕业学校', '就读学校', '学校', '院校', 'university', 'school'], block: ['绩点', '满绩', '排名'] },
+    { key: 'college', words: ['院系', '学院', 'college'] },
+    { key: 'major', words: ['所学专业', '专业', 'major'] },
+    { key: 'educationStart', words: ['入学时间', '入学日期'] },
+    { key: 'educationEnd', words: ['毕业时间', '毕业日期'] },
+    { key: 'mainCourses', words: ['主修课程', '主修', 'courses'] },
+    { key: 'wechat', words: ['微信号', '微信', 'wechat', 'weixin'] },
+    { key: 'github', words: ['github'] },
+    { key: 'linkedin', words: ['linkedin', '领英'] },
+    { key: 'portfolio', words: ['作品集', 'portfolio'] },
+    { key: 'homepage', words: ['个人主页', '个人博客', '博客', '主页', 'homepage', 'blog'] },
+    { key: 'website', words: ['个人网站', '个人网址', '网址', 'website'] },
+    { key: 'skills', words: ['技能标签', '专业技能', '技能', 'skills', 'skill'] },
+    { key: 'advantages', words: ['自我评价', '个人优势', '自我介绍', '个人简介', '自我描述', '个人评价', 'about me', 'summary'] },
+    // ===== 经历块字段（实习/工作/项目共用，填哪段由块聚类决定） =====
+    { key: 'expCompany', words: ['公司名称', '单位名称', '企业名称', '实习单位', '工作单位', '所在公司', '公司', '单位', 'company'], block: ['紧急', '联系'] },
+    { key: 'expTitle', words: ['项目名称', '项目名', 'project name', 'project'] },
+    { key: 'expRole', words: ['担任职位', '职位名称', '岗位名称', '担任角色', '职位', '岗位', '角色', 'position', 'role'] },
+    { key: 'expStart', words: ['开始时间', '起始时间', '开始日期', '入职时间', '起止时间', '任职时间', '在校时间', '实习时间', '项目时间', '工作时间', '就读时间', 'start'], block: ['最早可入职', '可入职', '可到岗', '到岗', '最早'] },
+    { key: 'expEnd', words: ['结束时间', '结束日期', '离职时间', '截止时间', 'end'] },
+    { key: 'expDesc', words: ['工作描述', '工作内容', '岗位职责', '职责描述', '项目描述', '实习描述', '经历描述', '描述', 'description'] }
+  ];
+  function clearAutofillHighlights() {
+    document.querySelectorAll(`.${AUTOFILL_FILL_CLASS}, .${AUTOFILL_MISS_CLASS}`).forEach((el) => el.classList.remove(AUTOFILL_FILL_CLASS, AUTOFILL_MISS_CLASS));
+  }
+  function isPageFieldVisible(el) {
+    const style = window.getComputedStyle(el);
+    if (style.display === 'none' || style.visibility === 'hidden' || Number(style.opacity) === 0) return false;
+    const rect = el.getBoundingClientRect();
+    return rect.width > 0 && rect.height > 0;
+  }
+  function fieldLabelBlob(el) {
+    const parts = [];
+    const push = (v) => { const s = String(v || '').replace(/\s+/g, ' ').trim(); if (s && s.length <= 60) parts.push(s); };
+    push(el.getAttribute('aria-label'));
+    const labelledBy = el.getAttribute('aria-labelledby');
+    if (labelledBy) labelledBy.split(/\s+/).forEach((id) => push(document.getElementById(id)?.textContent));
+    if (el.id) { try { push(document.querySelector(`label[for="${CSS.escape(el.id)}"]`)?.textContent); } catch {} }
+    push(el.closest('label')?.textContent);
+    push(el.getAttribute('placeholder'));
+    push(el.getAttribute('data-placeholder'));
+    // 前序兄弟文本：必须含中文或字母且长度≥2，排除范围选择器中间的「-」分隔符（否则循环会提前 break）
+    const pushPrevText = (node) => {
+      if (!node || isEditable(node) || node.querySelector('input, textarea, select, [contenteditable]')) return;
+      const t = node.textContent.replace(/\s+/g, '');
+      if (t.length >= 2 && t.length <= 60 && /[\u4e00-\u9fa5a-zA-Z]/.test(t)) push(node.textContent);
+    };
+    pushPrevText(el.previousElementSibling);
+    // el-form / ant-form 这类组件库：label 与输入框是兄弟分支，向上找就近祖先里的 label 文字
+    // 直接子 label 任何层级都可信；[class*=label]/div>label 只在 form-item 类容器里采信，防止爬到 body 串到别的字段
+    // 最后兜底：祖先里「不含输入框、文字很短」的兄弟元素大概率就是 label（覆盖无 label 标签、无 label class 的站点）
+    let host = el.parentElement;
+    for (let d = 0; host && d < 4; d += 1, host = host.parentElement) {
+      const before = parts.length; // 只有本层循环真的加了内容才停，placeholder 不算
+      let labEl = host.querySelector(':scope > label');
+      if (!labEl && /(form|field|item|group|control|content)/i.test(host.getAttribute('class') || '')) {
+        labEl = host.querySelector(':scope > [class*="label" i], :scope > div > label');
+      }
+      if (!labEl) {
+        // 必须含中文或字母且长度≥2：排除范围选择器中间的「-」分隔符这类纯符号节点
+        labEl = [...host.children].find((c) => !c.contains(el)
+          && !c.querySelector('input, textarea, select, [contenteditable]')
+          && (() => { const t = c.textContent.replace(/\s+/g, ''); return t.length >= 2 && t.length <= 24 && /[\u4e00-\u9fa5a-zA-Z]/.test(t); })());
+      }
+      if (labEl && !labEl.contains(el)) push(labEl.textContent);
+      pushPrevText(host.previousElementSibling);
+      if (parts.length > before) break;
+    }
+    // name/id 是弱信号，放最后兜底
+    push(el.getAttribute('name'));
+    push(el.id);
+    return parts.join(' ');
+  }
+  // 只读字段一般是展示态要跳过，但自定义下拉/日期组件的输入框也是只读的——这些「组件触发器」要纳入扫描
+  function isWidgetTrigger(el) {
+    if (el.getAttribute('aria-haspopup')) return true;
+    if (el.closest('[class*="select" i], [class*="picker" i], [class*="dropdown" i], [class*="cascader" i]')) return true;
+    return /(日期|时间|生日|date|time)/i.test(fieldLabelBlob(el));
+  }
+  // skipped（可选）：收集被排除的字段及原因，写进诊断报告
+  function scanPageFields(skipped) {
+    const fields = [];
+    document.querySelectorAll('input, textarea, select, [role="combobox"], [contenteditable="true"], [contenteditable=""]').forEach((el) => {
+      if (!(el instanceof HTMLElement)) return;
+      if (el.closest(`#${PANEL_ID}`)) return;
+      const tag = el.tagName.toLowerCase();
+      if (tag === 'input') {
+        const type = (el.getAttribute('type') || 'text').toLowerCase();
+        if (['hidden', 'checkbox', 'radio', 'button', 'submit', 'file', 'password', 'image', 'reset', 'range', 'color'].includes(type)) return;
+      }
+      const skip = (reason) => { skipped?.push({ reason, blob: fieldLabelBlob(el) || el.getAttribute('placeholder') || el.getAttribute('name') || tag }); };
+      if (el.disabled) { skip('禁用'); return; }
+      let kind = tag === 'select' ? 'select' : 'text';
+      if (tag !== 'select') {
+        if (el.getAttribute('role') === 'combobox' || el.getAttribute('aria-haspopup')) kind = 'widget';
+        else if (el.readOnly) {
+          if (!isWidgetTrigger(el)) { skip('只读'); return; }
+          kind = 'widget';
+        }
+      }
+      if (!isPageFieldVisible(el)) { skip('不可见'); return; }
+      // 已有内容的字段不覆盖
+      if (tag === 'select') { if (el.value && el.selectedIndex > 0) { skip('已有值'); return; } }
+      else if (el.isContentEditable) { if (el.textContent.trim()) { skip('已有值'); return; } }
+      else if (String(el.value || '').trim()) { skip('已有值'); return; }
+      const blob = fieldLabelBlob(el);
+      if (!blob) { skip('无上下文'); return; } // 没有任何上下文线索的字段匹配不了，也不标橙制造噪音
+      fields.push({ el, tag, kind, blob });
+    });
+    return fields;
+  }
+  function buildAutofillValues(editable) {
+    const profile = editable?.profile || {};
+    const labelOf = {};
+    BASIC_FIELDS.forEach((f) => { labelOf[f.key] = f.label; });
+    MODULES.forEach((m) => { labelOf[m.key] = m.label; });
+    return Object.keys(profile)
+      .map((key) => ({ key, label: labelOf[key] || key, value: String(profile[key] || '').trim() }))
+      .filter((x) => x.value);
+  }
+  function matchAutofillKey(blob, values) {
+    const text = String(blob || '').toLowerCase();
+    if (!text) return null;
+    const available = values instanceof Set ? values : new Set(values.map((v) => v.key));
+    let best = null, bestScore = 0;
+    AUTOFILL_RULES.forEach((rule) => {
+      if (!available.has(rule.key)) return;
+      if (rule.block?.some((w) => text.includes(w))) return;
+      rule.words.forEach((word) => {
+        if (word.length > bestScore && text.includes(word)) { best = rule.key; bestScore = word.length; }
+      });
+    });
+    return best;
+  }
+  function fillSelectOption(el, value) {
+    const v = String(value || '').trim().toLowerCase();
+    if (!v) return false;
+    const options = [...el.options].filter((o) => o.text.trim() || o.value.trim());
+    const hit = options.find((o) => o.text.trim().toLowerCase() === v || o.value.trim().toLowerCase() === v)
+      || options.find((o) => { const t = o.text.trim().toLowerCase(); return t.length >= 2 && (t.includes(v) || v.includes(t)); });
+    if (!hit) return false;
+    el.value = hit.value;
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+    el.dispatchEvent(new Event('change', { bubbles: true }));
+    return true;
+  }
+  function fillPageField(el, value) {
+    const v = String(value || '').trim();
+    if (!v || v === '至今') return false;
+    if (el.tagName.toLowerCase() === 'select') return fillSelectOption(el, v);
+    if (el.isContentEditable) {
+      el.focus();
+      document.execCommand('selectAll', false, null);
+      document.execCommand('insertText', false, v);
+      return true;
+    }
+    const type = (el.getAttribute('type') || 'text').toLowerCase();
+    let out = v;
+    if (type === 'date') { const d = normalizeDate(v); if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) return false; out = d; }
+    if (type === 'month') { const d = normalizeDate(v); if (!/^\d{4}-\d{2}/.test(d)) return false; out = d.slice(0, 7); }
+    setNativeValue(el, out);
+    return true;
+  }
+  const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+  // 组件填充：日期类——先点开组件，摘掉 readonly 再写入（组件会当作用户打字解析），Enter/blur 提交后恢复 readonly
+  async function fillWidgetDate(el, value) {
+    const d = normalizeDate(value);
+    el.scrollIntoView({ block: 'center' });
+    el.click();
+    await sleep(150);
+    const wasReadOnly = el.readOnly;
+    if (wasReadOnly) el.removeAttribute('readonly');
+    el.focus();
+    setNativeValue(el, d);
+    ['keydown', 'keypress', 'keyup'].forEach((t) => el.dispatchEvent(new KeyboardEvent(t, { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true })));
+    el.blur();
+    await sleep(100);
+    if (wasReadOnly) el.setAttribute('readonly', '');
+    return String(el.value || '').trim().length > 0;
+  }
+  // 组件填充：选项类——点开 → 在弹层里按文本匹配选项 → 点击；失败 Esc 关闭
+  async function fillWidgetByOption(el, value) {
+    const v = String(value || '').trim().toLowerCase();
+    el.scrollIntoView({ block: 'center' });
+    el.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+    el.click();
+    await sleep(300);
+    const containers = [...document.querySelectorAll('[role="listbox"], [role="menu"], [class*="dropdown" i], [class*="select" i], [class*="picker" i], [class*="popper" i], [class*="cascader" i]')]
+      .filter((c) => c instanceof HTMLElement && !c.closest(`#${PANEL_ID}`) && isPageFieldVisible(c));
+    let options = [];
+    containers.forEach((c) => c.querySelectorAll('[role="option"], li, [class*="option" i], [class*="item" i]').forEach((o) => options.push(o)));
+    if (!options.length) options = [...document.querySelectorAll('[role="option"]')];
+    const seen = new Set();
+    const norm = (o) => o.textContent.replace(/\s+/g, ' ').trim();
+    const candidates = options.filter((o) => {
+      if (!(o instanceof HTMLElement) || seen.has(o) || o.closest(`#${PANEL_ID}`)) return false;
+      seen.add(o);
+      if (!isPageFieldVisible(o)) return false;
+      const t = norm(o);
+      return t && t.length <= 24 && o.children.length <= 3;
+    });
+    const hit = candidates.find((o) => norm(o).toLowerCase() === v)
+      || candidates.find((o) => { const t = norm(o).toLowerCase(); return t.length >= 2 && (t.includes(v) || v.includes(t)); });
+    if (hit) {
+      hit.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+      hit.click();
+      await sleep(120);
+      return true;
+    }
+    el.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', bubbles: true }));
+    document.body.click();
+    return false;
+  }
+  async function fillWidgetField(el, value) {
+    const v = String(value || '').trim();
+    if (!v || v === '至今') return false;
+    const isDate = /^\d{4}-\d{2}/.test(normalizeDate(v));
+    if (isDate && (el.tagName.toLowerCase() === 'input' || el.isContentEditable)) return fillWidgetDate(el, v);
+    // 起止时间这类范围选择：单个输入框吃不下两个日期，直接放弃标橙
+    if (isDate) return false;
+    return fillWidgetByOption(el, v);
+  }
+  async function fillFieldAuto(field, value) {
+    if (field.kind === 'widget') return fillWidgetField(field.el, value);
+    return fillPageField(field.el, value);
+  }
+  // ===== 经历块：聚类 → 判型 → 按条目填充 → 自动点「添加」扩块 =====
+  const EXP_RULE_KEYS = ['expCompany', 'expTitle', 'expRole', 'expStart', 'expEnd', 'expDesc'];
+  // 已填入的经历块轨迹（文档顺序）：二次扫描补出的单独日期框（如开始日期填完才出现的结束框）按就近原则归到前面最近的经历块
+  let anchoredTrail = [];
+  const EXP_SUB_LABELS = { expCompany: '公司', expTitle: '项目名', expRole: '职位', expStart: '开始时间', expEnd: '结束时间', expDesc: '描述' };
+  const escHtml = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  const dbgLine = (icon, blob, note) => `${icon} 「${escHtml(truncate(blob, 24))}」${note}`;
+  const EXP_TYPE_KEYWORDS = { internship: ['实习'], work: ['工作', '全职'], project: ['项目'] };
+  function buildExpEntries(editable) {
+    const entries = [];
+    ['internship', 'work', 'project'].forEach((type) => {
+      (editable?.experiences?.[type] || []).forEach((item, index) => {
+        if (Object.values(item || {}).some((v) => String(v || '').trim())) entries.push({ type, index, data: item });
+      });
+    });
+    return entries;
+  }
+  function expEntryValue(entry, sub) {
+    const d = entry?.data || {};
+    if (sub === 'expCompany') return String(d.company || d.title || '').trim();
+    if (sub === 'expTitle') return String(d.title || d.company || '').trim();
+    if (sub === 'expRole') return String(d.role || '').trim();
+    if (sub === 'expStart') return String(d.start || '').trim();
+    if (sub === 'expEnd') return String(d.end || '').trim();
+    if (sub === 'expDesc') return String(d.description || '').trim();
+    return '';
+  }
+  // 用块的最近公共祖先（再向上 3 层）的文字判断经历类型（实习/工作/项目），容器太大放弃
+  function detectExpBlockType(block) {
+    let node = block[0].field.el.parentElement;
+    while (node && !block.every(({ field }) => node.contains(field.el))) node = node.parentElement;
+    for (let depth = 0; node && depth < 4; depth += 1, node = node.parentElement) {
+      const text = node.textContent.replace(/\s+/g, '');
+      if (text.length > 1200) continue;
+      for (const [type, words] of Object.entries(EXP_TYPE_KEYWORDS)) {
+        if (words.some((w) => text.includes(w))) return type;
+      }
+    }
+    return null;
+  }
+  // 按文档顺序聚块：遇到 公司/项目名（锚点）或同名字段重复出现就开新块；没有锚点的块不吸收后续字段
+  // 起止时间是两个输入框（开始/结束）且共用一个标签时，两个框都会匹配 expStart——把同块里第二个转成 expEnd
+  function clusterExpBlocks(expFieldEntries) {
+    const hasAnchor = (block) => block.some((x) => x.sub === 'expCompany' || x.sub === 'expTitle');
+    const blocks = [];
+    expFieldEntries.forEach((raw) => {
+      const item = { ...raw };
+      const last = blocks[blocks.length - 1];
+      const isAnchor = item.sub === 'expCompany' || item.sub === 'expTitle';
+      if (last && item.sub === 'expStart' && hasAnchor(last)
+        && last.some((x) => x.sub === 'expStart') && !last.some((x) => x.sub === 'expEnd')) {
+        item.sub = 'expEnd';
+      }
+      const startsNew = !last || isAnchor || last.some((x) => x.sub === item.sub) || !hasAnchor(last);
+      if (startsNew) blocks.push([item]);
+      else last.push(item);
+    });
+    return blocks;
+  }
+  function takeExpEntry(expEntries, consumed, preferredType) {
+    if (preferredType) {
+      const typed = expEntries.find((e) => e.type === preferredType && !consumed.has(e));
+      if (typed) return typed;
+    }
+    return expEntries.find((e) => !consumed.has(e)) || null;
+  }
+  async function fillExpBlocks(expFieldEntries, expEntries, consumed, missed, basicValueOf, dbg = []) {
+    let count = 0;
+    const blocks = clusterExpBlocks(expFieldEntries);
+    let blockIndex = 0;
+    let lastLoneEffSub = null; // 上一个无锚日期字段的有效 sub：连续两个 expStart 时第二个转 expEnd（教育起止对）
+    for (const block of blocks) {
+      const anchored = block.some((x) => x.sub === 'expCompany' || x.sub === 'expTitle');
+      if (!anchored) {
+        // 没有公司/项目名的日期块：前面有已填经历块 → 就近归到该块（二次扫描补出的结束框）；
+        // 否则多半是教育经历 → 回落到基础字段的入学/毕业时间（blob 必须像日期才回落，防长文本误判）
+        for (const { field, sub } of block) {
+          let v = '';
+          let note = '';
+          // 找文档顺序上排在这个字段前面、最近的一个已填经历块
+          const trail = anchoredTrail.filter((t) => t.el.compareDocumentPosition(field.el) & Node.DOCUMENT_POSITION_FOLLOWING).pop() || null;
+          let effSub = sub;
+          // 该经历块已经填过开始时间 → 这个后出现的日期框是结束时间
+          if (trail && sub === 'expStart' && trail.subs?.includes('expStart')) effSub = 'expEnd';
+          else if (!trail && sub === 'expStart' && lastLoneEffSub === 'expStart') effSub = 'expEnd';
+          if ((effSub === 'expStart' || effSub === 'expEnd') && trail) {
+            v = expEntryValue(trail.entry, effSub);
+            const entryName = expEntryValue(trail.entry, 'expCompany') || '就近经历';
+            note = ` → ${EXP_SUB_LABELS[effSub]}（${escHtml(truncate(entryName, 16))}，就近补全）`;
+          }
+          if (!v) {
+            const basicKey = effSub === 'expStart' ? 'educationStart' : effSub === 'expEnd' ? 'educationEnd' : null;
+            const label = basicKey === 'educationStart' ? '入学时间' : basicKey === 'educationEnd' ? '毕业时间' : null;
+            const dateish = /(时间|日期|起止|入学|毕业|date|time)/i.test(field.blob);
+            v = basicKey && dateish ? basicValueOf(basicKey) : '';
+            if (v) note = ` → ${label}（教育回落）`;
+          }
+          if (effSub === 'expStart' || effSub === 'expEnd') lastLoneEffSub = effSub;
+          if (v && (await fillFieldAuto(field, v))) {
+            field.el.classList.add(AUTOFILL_FILL_CLASS); count += 1;
+            dbg.push(dbgLine('✓', field.blob, note));
+          } else {
+            missed.push(field);
+            const dateish = /(时间|日期|起止|入学|毕业|date|time)/i.test(field.blob);
+            dbg.push(dbgLine('✗', field.blob, v ? `${note}（填入失败）` : (dateish ? '（判为教育时间但简历为空，未填）' : '（经历时间字段但上下文不足，未填）')));
+          }
+        }
+        continue;
+      }
+      lastLoneEffSub = null;
+      blockIndex += 1;
+      const type = detectExpBlockType(block);
+      const entry = takeExpEntry(expEntries, consumed, type);
+      if (!entry) {
+        block.forEach((x) => missed.push(x.field));
+        dbg.push(`✗ 经历块${blockIndex}：简历里没有更多经历条目可填`);
+        continue;
+      }
+      consumed.add(entry);
+      const entryName = expEntryValue(entry, 'expCompany') || `${entry.type}#${entry.index + 1}`;
+      for (const { field, sub } of block) {
+        const v = expEntryValue(entry, sub);
+        if (v && (await fillFieldAuto(field, v))) {
+          field.el.classList.add(AUTOFILL_FILL_CLASS); count += 1;
+          dbg.push(dbgLine('✓', field.blob, ` → ${EXP_SUB_LABELS[sub]}（${escHtml(truncate(entryName, 16))}）`));
+        } else {
+          missed.push(field);
+          dbg.push(dbgLine('✗', field.blob, v ? ` → ${EXP_SUB_LABELS[sub]}（填入失败）` : ` → ${EXP_SUB_LABELS[sub]}（简历为空）`));
+        }
+      }
+      anchoredTrail.push({ entry, el: block[block.length - 1].field.el, subs: block.map((x) => x.sub) });
+    }
+    return count;
+  }
+  // 找页面上的「添加经历」按钮：要求上下文带 实习/工作/项目/经历 字样，避免误点「添加附件」之类
+  function findAddButton(typeWords) {
+    const cands = [...document.querySelectorAll('button, a, [role="button"], input[type="button"], [class*="add" i], [class*="plus" i]')]
+      .filter((el) => el instanceof HTMLElement && !el.closest(`#${PANEL_ID}`) && isPageFieldVisible(el))
+      .map((el) => ({ el, text: String(el.textContent || el.value || '').replace(/\s+/g, '') }))
+      .filter((x) => x.text && x.text.length <= 14 && /(添加|新增|增加|＋|\+)/.test(x.text));
+    if (!cands.length) return null;
+    const ctxOf = (el) => {
+      let ctx = '';
+      let node = el;
+      for (let d = 0; node && d < 3; d += 1, node = node.parentElement) ctx += node.textContent.replace(/\s+/g, '');
+      return ctx.slice(0, 400);
+    };
+    const typed = cands.find((x) => typeWords.some((w) => ctxOf(x.el).includes(w)));
+    if (typed) return typed.el;
+    const generic = cands.find((x) => /(经历|经验|教育)/.test(ctxOf(x.el)));
+    return generic ? generic.el : null;
+  }
+  // 简历里还有经历没填完：自动点「添加」扩出新块，再填下一段
+  async function growExpBlocks(expEntries, consumed, missed, available, dbg = []) {
+    let count = 0;
+    for (let guard = 0; guard < 6; guard += 1) {
+      const remaining = expEntries.filter((e) => !consumed.has(e));
+      if (!remaining.length) break;
+      const btn = findAddButton(EXP_TYPE_KEYWORDS[remaining[0].type] || []);
+      if (!btn) { dbg.push(`✋ 还有 ${remaining.length} 段经历未填：页面上没找到「添加经历」按钮`); break; }
+      const before = new Set(scanPageFields().map((f) => f.el));
+      btn.scrollIntoView({ block: 'center' });
+      btn.click();
+      await sleep(500);
+      const fresh = scanPageFields().filter((f) => !before.has(f.el));
+      const freshExp = [];
+      fresh.forEach((field) => {
+        const key = matchAutofillKey(field.blob, available);
+        if (key && EXP_RULE_KEYS.includes(key)) freshExp.push({ field, sub: key });
+      });
+      if (!freshExp.length) { dbg.push('✋ 点了「添加」但没识别出新块里的字段，停止扩块'); break; }
+      const entry = remaining[0];
+      consumed.add(entry);
+      const entryName = expEntryValue(entry, 'expCompany') || `${entry.type}#${entry.index + 1}`;
+      dbg.push(`➕ 点了「添加」，填入经历：${escHtml(truncate(entryName, 16))}`);
+      for (const { field, sub } of freshExp) {
+        const v = expEntryValue(entry, sub);
+        if (v && (await fillFieldAuto(field, v))) { field.el.classList.add(AUTOFILL_FILL_CLASS); count += 1; }
+        else missed.push(field);
+      }
+      anchoredTrail.push({ entry, el: freshExp[freshExp.length - 1].field.el, subs: freshExp.map((x) => x.sub) });
+    }
+    return count;
+  }
+  const AI_MATCH_PROMPT = `你是网页表单字段匹配助手。用户会给你两组数据：
+1. fields：网页表单字段列表，每项 {"id": 序号, "label": 字段旁边的文字}
+2. resume：简历数据列表，每项 {"key": 字段标识, "label": 字段含义}
+请判断每个网页字段应该填入哪个简历字段。只输出 JSON：{"matches": {"网页字段id": "简历字段key"}}，无法确定的不要放进 matches，宁缺毋滥。不要输出任何解释。`;
+  async function aiMatchFields(unmatched, values, apiKey, model) {
+    const payload = JSON.stringify({
+      fields: unmatched.map((f, i) => ({ id: String(i), label: truncate(f.blob, 60) })),
+      resume: values.map((v) => ({ key: v.key, label: v.label }))
+    });
+    const response = await chrome.runtime.sendMessage({ type: 'DEEPSEEK_MATCH', apiKey, model, systemPrompt: AI_MATCH_PROMPT, userText: payload });
+    if (!response?.ok) throw new Error(response?.error || 'AI 请求失败');
+    const content = String(response.content || '').trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim();
+    const parsed = JSON.parse(content || '{}');
+    return parsed?.matches && typeof parsed.matches === 'object' ? parsed.matches : {};
+  }
+  async function runAutofill() {
+    if (!autofillEnabled) { toast('请先在面板头部开启「自动填充」开关', true); return; }
+    clearAutofillHighlights();
+    anchoredTrail = [];
+    const skipped = [];
+    const fields = scanPageFields(skipped);
+    if (!fields.length) { toast('当前页面没有识别到待填写的表单项'); return; }
+    const { editable } = await getState();
+    const values = buildAutofillValues(editable);
+    if (!values.length) { toast('还没有简历数据，请先导入简历', true); return; }
+    const expEntries = buildExpEntries(editable);
+    const available = new Set(values.map((v) => v.key));
+    if (expEntries.length) EXP_RULE_KEYS.forEach((k) => available.add(k));
+
+    const dbg = [`🔎 扫描到 ${fields.length} 个待填字段（简历经历条目 ${expEntries.length} 条）`];
+    let filledCount = 0;
+    let missed = [];
+    const expFieldEntries = [];
+    for (const field of fields) {
+      const key = matchAutofillKey(field.blob, available);
+      if (!key) { missed.push(field); dbg.push(dbgLine('○', field.blob, '（未识别）')); continue; }
+      if (EXP_RULE_KEYS.includes(key)) { expFieldEntries.push({ field, sub: key }); continue; }
+      const item = values.find((v) => v.key === key);
+      if (item && (await fillFieldAuto(field, item.value))) {
+        field.el.classList.add(AUTOFILL_FILL_CLASS); filledCount += 1;
+        dbg.push(dbgLine('✓', field.blob, ` → ${item.label}${field.kind === 'widget' ? '（组件）' : ''}`));
+      } else {
+        missed.push(field);
+        dbg.push(dbgLine('✗', field.blob, ` → ${item?.label || key}（填入失败${field.kind === 'widget' ? '，组件拒绝' : ''}）`));
+      }
+    }
+    // 经历块：按块填入对应经历条目
+    const consumed = new Set();
+    const basicValueOf = (key) => values.find((v) => v.key === key)?.value || '';
+    filledCount += await fillExpBlocks(expFieldEntries, expEntries, consumed, missed, basicValueOf, dbg);
+    // 页面没预留足够的空白经历块：尝试自动点「添加」再补填
+    filledCount += await growExpBlocks(expEntries, consumed, missed, available, dbg);
+
+    // 二次扫描：有些字段（如范围日期的结束框）在填入开始值后才出现
+    await sleep(400);
+    const seenEls = new Set(fields.map((f) => f.el));
+    const fresh = scanPageFields().filter((f) => !seenEls.has(f.el));
+    if (fresh.length) {
+      dbg.push(`🔄 二次扫描发现 ${fresh.length} 个新字段`);
+      const freshExp = [];
+      for (const field of fresh) {
+        const key = matchAutofillKey(field.blob, available);
+        if (!key) { missed.push(field); dbg.push(dbgLine('○', field.blob, '（未识别）')); continue; }
+        if (EXP_RULE_KEYS.includes(key)) { freshExp.push({ field, sub: key }); continue; }
+        const item = values.find((v) => v.key === key);
+        if (item && (await fillFieldAuto(field, item.value))) {
+          field.el.classList.add(AUTOFILL_FILL_CLASS); filledCount += 1;
+          dbg.push(dbgLine('✓', field.blob, ` → ${item.label}${field.kind === 'widget' ? '（组件）' : ''}`));
+        } else {
+          missed.push(field);
+          dbg.push(dbgLine('✗', field.blob, ` → ${item?.label || key}（填入失败）`));
+        }
+      }
+      filledCount += await fillExpBlocks(freshExp, expEntries, consumed, missed, basicValueOf, dbg);
+    }
+
+    const aiData = await chrome.storage.local.get([AI_KEY, AI_ENABLED_KEY, AI_MODEL_KEY]);
+    if (missed.length && aiData[AI_KEY] && aiData[AI_ENABLED_KEY]) {
+      const progress = toastProgress(`本地已填 ${filledCount} 项，AI 正在匹配剩余 ${missed.length} 项…`);
+      try {
+        const matches = await aiMatchFields(missed, values, aiData[AI_KEY], aiData[AI_MODEL_KEY] || AI_MODEL_DEFAULT);
+        const stillMissed = [];
+        let aiFilled = 0;
+        for (let i = 0; i < missed.length; i += 1) {
+          const field = missed[i];
+          const key = matches[String(i)];
+          const item = key ? values.find((v) => v.key === key) : null;
+          if (item && (await fillFieldAuto(field, item.value))) { field.el.classList.add(AUTOFILL_FILL_CLASS); aiFilled += 1; }
+          else stillMissed.push(field);
+        }
+        filledCount += aiFilled;
+        missed = stillMissed;
+        progress.done(`AI 追加填入 ${aiFilled} 项`);
+      } catch (error) {
+        progress.fail(`AI 匹配失败：${error.message}（本地结果已保留）`);
+      }
+    }
+    if (skipped.length) {
+      dbg.push(`—— 跳过的 ${skipped.length} 个字段（未参与填写） ——`);
+      skipped.slice(0, 15).forEach((s) => dbg.push(dbgLine('◌', s.blob, `（跳过：${s.reason}）`)));
+    }
+    missed.forEach((field) => field.el.classList.add(AUTOFILL_MISS_CLASS));
+    setImportDebug(dbg);
+    toast(missed.length
+      ? `已填入 ${filledCount} 项（绿色），${missed.length} 项未匹配（橙色，明细见预览页底部诊断）`
+      : `全部 ${filledCount} 项已填入，请检查后提交`);
+  }
   async function fillToActive(value) { const copied = await copyValue(value); const target = document.activeElement && isEditable(document.activeElement) ? document.activeElement : lastActiveEditable; if (target && isEditable(target)) { if (target.isContentEditable) { target.focus(); document.execCommand('selectAll', false, null); document.execCommand('insertText', false, value); } else { target.focus(); setNativeValue(target, value); } toast(copied ? '已复制并写入输入框' : '已写入输入框'); return; } toast(copied ? '未找到输入框，内容已复制' : '请先点击目标输入框后再点字段', !copied); }
   const AI_SYSTEM_PROMPT = `你是专业的简历解析助手。把用户发来的简历纯文本解析为结构化 JSON，只输出 JSON 本身，不要输出任何解释或 markdown 代码块。
 
@@ -1259,7 +1800,7 @@
     aiCard.className = 'raf-setting-card';
     const aiMeta = document.createElement('div');
     aiMeta.className = 'raf-setting-meta';
-    aiMeta.innerHTML = `<strong>接入你自己的 DeepSeek API Key</strong><span>开启后，导入简历会同时调用 DeepSeek 解析，识别率更高；失败会自动回落本地规则。Key 只保存在本地浏览器。注意：简历文本将发送到 DeepSeek API。申请地址：platform.deepseek.com</span>`;
+    aiMeta.innerHTML = `<strong>接入你自己的 DeepSeek API Key</strong><span>开启后，导入简历会同时调用 DeepSeek 解析，识别率更高；自动填充时也会对本地规则匹配不上的页面字段做语义兜底，失败会自动回落本地结果。Key 只保存在本地浏览器。注意：简历文本与页面字段标签将发送到 DeepSeek API。申请地址：platform.deepseek.com</span>`;
     aiCard.appendChild(aiMeta);
     const keyInput = document.createElement('input');
     keyInput.className = 'raf-edit-input';
@@ -1701,7 +2242,7 @@
     panel.id = PANEL_ID;
     panel.style.left = '20px';
     panel.style.top = '90px';
-    panel.innerHTML = `<div class="raf-head"><div class="raf-head-top"><div class="raf-actions"><div class="raf-mode-group"><button id="raf-preview-tab" class="raf-tab active" type="button">预览</button><button id="raf-edit-tab" class="raf-tab" type="button">编辑</button><button id="raf-settings-tab" class="raf-tab" type="button">设置</button><button id="raf-pin-btn" class="raf-tab" type="button">固定</button><button id="raf-close" class="raf-tab raf-close-tab" type="button">关闭</button></div></div></div></div><div class="raf-drag-blur" aria-hidden="true"></div><div id="raf-list" class="raf-list"></div>`;
+    panel.innerHTML = `<div class="raf-head"><div class="raf-head-top"><div class="raf-actions"><div class="raf-mode-group"><button id="raf-preview-tab" class="raf-tab active" type="button">预览</button><button id="raf-edit-tab" class="raf-tab" type="button">编辑</button><button id="raf-settings-tab" class="raf-tab" type="button">设置</button><button id="raf-pin-btn" class="raf-tab" type="button">固定</button><button id="raf-close" class="raf-tab raf-close-tab" type="button">关闭</button></div></div></div><div class="raf-autofill-bar"><label class="raf-switch" title="自动填充总开关（全局生效，所有网站统一）"><input type="checkbox" id="raf-autofill-toggle"><span class="raf-switch-track"></span></label><span class="raf-autofill-text">自动填充</span><button id="raf-autofill-run" class="raf-autofill-run" type="button">识别并填充本页</button></div></div><div class="raf-drag-blur" aria-hidden="true"></div><div id="raf-list" class="raf-list"></div>`;
     document.body.appendChild(panel);
 
     const listEl = panel.querySelector('#raf-list');
@@ -1710,6 +2251,12 @@
     const closeEl = panel.querySelector('#raf-close');
     const previewTab = panel.querySelector('#raf-preview-tab');
     const editTab = panel.querySelector('#raf-edit-tab');
+    const autofillToggle = panel.querySelector('#raf-autofill-toggle');
+    const autofillRun = panel.querySelector('#raf-autofill-run');
+    const syncAutofillBar = () => {
+      autofillToggle.checked = autofillEnabled;
+      autofillRun.disabled = !autofillEnabled;
+    };
     const applyToolbarByView = () => {
       const isSettings = currentView === 'settings';
       const isEdit = currentView === 'edit';
@@ -1724,11 +2271,12 @@
       closeEl.setAttribute('aria-pressed', 'false');
     };
 
-    const stored = await chrome.storage.local.get([PIN_KEY, POS_KEY, VIEW_KEY, BRIGHTNESS_KEY, OPACITY_KEY, WIDTH_KEY, HEIGHT_KEY, GLASS_SAT_KEY]);
+    const stored = await chrome.storage.local.get([PIN_KEY, POS_KEY, VIEW_KEY, BRIGHTNESS_KEY, OPACITY_KEY, WIDTH_KEY, HEIGHT_KEY, GLASS_SAT_KEY, AUTOFILL_KEY]);
     if (stored[POS_KEY]?.left) panel.style.left = stored[POS_KEY].left;
     if (stored[POS_KEY]?.top) panel.style.top = stored[POS_KEY].top;
     pinned = stored[PIN_KEY] !== false;
     currentView = stored[VIEW_KEY] || 'preview';
+    autofillEnabled = !!stored[AUTOFILL_KEY];
     {
       const parsedGlassSat = Number(stored[GLASS_SAT_KEY]);
       glassSaturation = Math.max(0, Math.min(10000, Number.isFinite(parsedGlassSat) ? parsedGlassSat : 20));
@@ -1739,6 +2287,7 @@
     applyPanelSize(panel, stored[WIDTH_KEY] ?? 100, stored[HEIGHT_KEY] ?? 100);
     syncPanelLayout(panel);
     applyToolbarByView();
+    syncAutofillBar();
 
     await applyPinState(panel, pinned);
     await renderCurrentView(listEl);
@@ -1766,6 +2315,10 @@
     });
 
     chrome.storage.onChanged.addListener((changes, area) => {
+      if (area === 'local' && changes[AUTOFILL_KEY]) {
+        autofillEnabled = !!changes[AUTOFILL_KEY].newValue;
+        syncAutofillBar();
+      }
       if (area === 'local' && (changes.resumeFlattened || changes.resumeEditable || changes.resumeParsed) && listRoot === listEl) {
         if (skipStorageRenderCount > 0) {
           skipStorageRenderCount -= 1;
@@ -1780,6 +2333,13 @@
       applyToolbarByView();
       toast(pinned ? '已固定在屏幕' : '已取消固定，可随页面滚动');
     });
+    autofillToggle.addEventListener('change', async () => {
+      autofillEnabled = autofillToggle.checked;
+      await chrome.storage.local.set({ [AUTOFILL_KEY]: autofillEnabled });
+      syncAutofillBar();
+      toast(autofillEnabled ? '自动填充已开启（全局生效）' : '自动填充已关闭');
+    });
+    autofillRun.addEventListener('click', () => { runAutofill(); });
     closeEl.addEventListener('click', (e) => { e.stopPropagation(); panelVisible = false; updatePanelVisibility(); });
     closeEl.addEventListener('mousedown', (e) => e.stopPropagation());
     settingsTab.addEventListener('mousedown', (e) => e.stopPropagation());

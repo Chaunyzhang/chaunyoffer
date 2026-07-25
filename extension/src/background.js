@@ -45,35 +45,44 @@ async function injectContent(tabId) {
   });
 }
 
+async function callDeepSeek({ apiKey, model, systemPrompt, userText }) {
+  const resp = await fetch('https://api.deepseek.com/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${apiKey}`
+    },
+    body: JSON.stringify({
+      model: model || 'deepseek-v4-pro',
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userText }
+      ],
+      // v4 默认开启思考模式，会把 token 额度耗在推理上导致正文为空/截断，结构化任务必须关掉
+      thinking: { type: 'disabled' },
+      response_format: { type: 'json_object' },
+      temperature: 0.1,
+      max_tokens: 8192
+    })
+  });
+  const data = await resp.json().catch(() => null);
+  if (!resp.ok) throw new Error(data?.error?.message || `HTTP ${resp.status}`);
+  return data?.choices?.[0]?.message?.content || '';
+}
+
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
-  if (message?.type !== 'DEEPSEEK_PARSE') return undefined;
+  // DEEPSEEK_PARSE = 简历文本解析；DEEPSEEK_MATCH = 自动填充的页面字段语义匹配
+  if (message?.type !== 'DEEPSEEK_PARSE' && message?.type !== 'DEEPSEEK_MATCH') return undefined;
   (async () => {
     try {
-      const resp = await fetch('https://api.deepseek.com/chat/completions', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${message.apiKey}`
-        },
-        body: JSON.stringify({
-          model: message.model || 'deepseek-v4-pro',
-          messages: [
-            { role: 'system', content: message.systemPrompt },
-            { role: 'user', content: message.resumeText }
-          ],
-          // v4 默认开启思考模式，会把 token 额度耗在推理上导致正文为空/截断，结构化任务必须关掉
-          thinking: { type: 'disabled' },
-          response_format: { type: 'json_object' },
-          temperature: 0.1,
-          max_tokens: 8192
-        })
+      const userText = message.type === 'DEEPSEEK_MATCH' ? message.userText : message.resumeText;
+      const content = await callDeepSeek({
+        apiKey: message.apiKey,
+        model: message.model,
+        systemPrompt: message.systemPrompt,
+        userText
       });
-      const data = await resp.json().catch(() => null);
-      if (!resp.ok) {
-        sendResponse({ ok: false, error: data?.error?.message || `HTTP ${resp.status}` });
-        return;
-      }
-      sendResponse({ ok: true, content: data?.choices?.[0]?.message?.content || '' });
+      sendResponse({ ok: true, content });
     } catch (error) {
       sendResponse({ ok: false, error: String(error?.message || error) });
     }
