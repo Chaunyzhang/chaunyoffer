@@ -45,6 +45,42 @@ async function injectContent(tabId) {
   });
 }
 
+chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+  if (message?.type !== 'DEEPSEEK_PARSE') return undefined;
+  (async () => {
+    try {
+      const resp = await fetch('https://api.deepseek.com/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${message.apiKey}`
+        },
+        body: JSON.stringify({
+          model: message.model || 'deepseek-v4-pro',
+          messages: [
+            { role: 'system', content: message.systemPrompt },
+            { role: 'user', content: message.resumeText }
+          ],
+          // v4 默认开启思考模式，会把 token 额度耗在推理上导致正文为空/截断，结构化任务必须关掉
+          thinking: { type: 'disabled' },
+          response_format: { type: 'json_object' },
+          temperature: 0.1,
+          max_tokens: 8192
+        })
+      });
+      const data = await resp.json().catch(() => null);
+      if (!resp.ok) {
+        sendResponse({ ok: false, error: data?.error?.message || `HTTP ${resp.status}` });
+        return;
+      }
+      sendResponse({ ok: true, content: data?.choices?.[0]?.message?.content || '' });
+    } catch (error) {
+      sendResponse({ ok: false, error: String(error?.message || error) });
+    }
+  })();
+  return true;
+});
+
 chrome.action.onClicked.addListener(async (tab) => {
   if (!tab?.id) return;
 

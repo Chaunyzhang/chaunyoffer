@@ -1,5 +1,10 @@
 ﻿(async () => {
-  if (window.__resumeAutoFillInjected) return;
+  // 扩展重载后旧上下文会失效：检测到失效时清掉旧面板并重新初始化，而不是直接退出
+  const isExtContextValid = () => { try { return !!chrome?.runtime?.id; } catch { return false; } };
+  if (window.__resumeAutoFillInjected) {
+    if (isExtContextValid()) return;
+    document.getElementById('resume-autofill-panel')?.remove();
+  }
   window.__resumeAutoFillInjected = true;
 
   const PANEL_ID = 'resume-autofill-panel';
@@ -11,6 +16,10 @@
   const WIDTH_KEY = 'rafPanelWidth';
   const HEIGHT_KEY = 'rafPanelHeight';
   const GLASS_SAT_KEY = 'rafGlassSaturation';
+  const AI_KEY = 'rafDeepSeekKey';
+  const AI_ENABLED_KEY = 'rafAiEnabled';
+  const AI_MODEL_KEY = 'rafAiModel';
+  const AI_MODEL_DEFAULT = 'deepseek-v4-pro';
   const PANEL_WIDTH_BASE = 410;
   const PANEL_WIDTH_PERCENT_MIN = 85;
   const PANEL_WIDTH_PERCENT_MAX = 150;
@@ -20,8 +29,9 @@
   const STORAGE_KEYS = ['resumeParsed', 'resumeFlattened', 'resumeEditable', 'resumeUpdatedAt'];
   const BASIC_FIELDS = [
     ['name','姓名','text'],['gender','性别','text'],['birthday','出生日期','date'],['city','所在城市','text'],['idType','证件类型','text'],['idNumber','证件号码','text'],
-    ['phone','手机号','text'],['email','邮箱','text'],['wechat','微信号','text'],['emergencyContact','紧急联系人','text'],['emergencyPhone','紧急联系方式','text'],['school','学校','text'],
-    ['college','学院','text'],['major','专业','text'],['degree','学历','text'],['educationStart','入学时间','date'],['educationEnd','毕业时间','date'],['mainCourses','主修课程','textarea']
+    ['phone','手机号','text'],['email','邮箱','text'],['wechat','微信号','text'],['github','GitHub','text'],['homepage','个人主页/博客','text'],['portfolio','个人作品集网站','text'],['website','个人网址','text'],['linkedin','LinkedIn','text'],['emergencyContact','紧急联系人','text'],['emergencyPhone','紧急联系方式','text'],['school','学校','text'],
+    ['college','学院','text'],['major','专业','text'],['degree','学历','text'],['educationStart','入学时间','date'],['educationEnd','毕业时间','date'],['mainCourses','主修课程','textarea'],
+    ['nativePlace','籍贯','text'],['politicalStatus','政治面貌','text'],['address','现居地址','text'],['jobIntent','求职意向','text'],['expectedCity','期望城市','text'],['expectedSalary','期望薪资','text'],['availableDate','到岗时间','text']
   ].map(([key,label,type]) => ({ key, label, type }));
   const EXP_GROUPS = [
     { key:'internship', label:'实习经历', fields:[
@@ -80,9 +90,24 @@
     const year = yearRaw.length === 2 ? `20${yearRaw}` : yearRaw;
     return `${year}-${m[2].padStart(2, '0')}-${(m[3] || '01').padStart(2, '0')}`;
   };
+  const normalizeRawText = (raw) => String(raw || '')
+    .replace(/\u00a0/g, ' ')
+    .replace(/[｜│]/g, '|')
+    .replace(/～/g, '~')
+    .replace(/[–—]/g, '-')
+    .replace(/（/g, '(').replace(/）/g, ')')
+    .replace(/[０-９Ａ-Ｚａ-ｚ]/g, (ch) => String.fromCharCode(ch.charCodeAt(0) - 0xFEE0))
+    .replace(/\r/g, '');
   const EDUCATION_HINT = /(教育经历|教育背景|学校|学院|专业|学历|主修课程|入学时间|毕业时间|本科|硕士|博士|专科|研究生)/;
   const YEAR_MONTH = '(?:\\d{2}|(?:19|20)\\d{2})[./-]\\d{1,2}';
   const PERIOD_PREFIX_RE = new RegExp(`^((?:${YEAR_MONTH})(?:\\s*(?:-|~|至|到)\\s*(?:${YEAR_MONTH}|至今|present))?)(.+)$`, 'i');
+  const PERIOD_TAIL_RE = new RegExp(`^(.+?)\\s+((?:${YEAR_MONTH})(?:\\s*(?:-|~|至|到)\\s*(?:${YEAR_MONTH}|至今|present))?)$`, 'i');
+  const PERIOD_ONLY_RE = new RegExp(`^((?:${YEAR_MONTH})(?:\\s*(?:-|~|至|到)\\s*(?:${YEAR_MONTH}|至今|present))?)$`, 'i');
+  const withPeriodDates = (entry) => ({
+    ...entry,
+    start: normalizeDate((String(entry.period || '').match(new RegExp(`(${YEAR_MONTH})`)) || [])[1] || ''),
+    end: normalizeDate((String(entry.period || '').match(new RegExp(`(?:-|~|至|到)\\s*(${YEAR_MONTH}|至今|present)`, 'i')) || [])[1] || '')
+  });
   const ROLE_TAIL_HINT = /(产品经理|AI产品经理|产品实习生|运营实习生|算法实习生|开发工程师|前端工程师|后端工程师|测试工程师|设计师|研究员|分析师|负责人|项目负责人|创始人|合伙人|经理|实习生)$/i;
   const parseInlineEducation = (line) => {
     const clean = String(line || '').replace(/\s+/g, ' ').trim();
@@ -115,7 +140,13 @@
       mainCourses: pickByRegex(text, /主修课程[:：]\s*([^\n]+)/)
     };
     const educationBlock = blocks.find((block) => EDUCATION_HINT.test(block)) || '';
-    const inline = parseInlineEducation(educationBlock || text);
+    let inline = parseInlineEducation(educationBlock || '');
+    if (!inline?.school) {
+      // 表格/无标签简历：找一行同时含学校和学历/时间信息的
+      const eduLine = text.split(/\n/).map((x) => x.trim()).find((l) => /(大学|学院|学校|职业技术学院|职业学院)/.test(l) && EDUCATION_HINT.test(l));
+      if (eduLine) inline = parseInlineEducation(eduLine) || inline;
+    }
+    if (!inline) inline = parseInlineEducation(text);
     if (!profile.school && inline?.school) profile.school = inline.school;
     if (!profile.major && inline?.major) profile.major = inline.major;
     if (!profile.degree && inline?.degree) profile.degree = inline.degree;
@@ -148,7 +179,9 @@
   ];
   const isSectionHeader = (line) => {
     const text = String(line || '').trim();
-    return SECTION_HEADER_RULES.some((rule) => rule.header.test(text)) || /(教育经历|教育背景|项目经历|工作经历|实习经历|技能|能力|优势|总结|其他信息|个人优势|专业技能|自我评价|个人总结|奖项荣誉|获奖情况|论文专利)/.test(text);
+    if (SECTION_HEADER_RULES.some((rule) => rule.header.test(text))) return true;
+    if (text.length > 16) return false; // 长行不可能是标题，防止误截断正文
+    return /(教育经历|教育背景|项目经历|工作经历|实习经历|技能|能力|优势|总结|其他信息|个人优势|专业技能|自我评价|个人总结|奖项荣誉|获奖情况|论文专利)/.test(text);
   };
   const collectSectionLines = (text, key) => {
     const rule = SECTION_HEADER_RULES.find((item) => item.key === key);
@@ -239,6 +272,15 @@
         continue;
       }
 
+      // 日期在开头：2021.10 校级一等奖学金
+      const dateLead = line.match(new RegExp(`^(${YEAR_MONTH}(?:[./-]\\d{1,2})?)\\s*(.+)$`));
+      if (dateLead) {
+        pushCurrent();
+        current = createRecord();
+        current.date = normalizeDate(dateLead[1]);
+        current.name = dateLead[2].trim();
+        continue;
+      }
       const dated = line.match(/^(.*?)\s+((?:19|20)\d{2}[./-]\d{1,2}(?:[./-]\d{1,2})?)$/);
       if (dated) {
         pushCurrent();
@@ -299,7 +341,24 @@
     }
     return result;
   };
-  const cleanBullet = (line) => String(line || '').replace(/^[•·\-\d.、\s]+/, '').trim();
+  // 通用小节采集：从匹配 header 的行开始，到下一个任何小节标题为止
+  const collectGenericSection = (text, headerRe) => {
+    const out = [];
+    let active = false;
+    for (const rawLine of String(text || '').split(/\n/)) {
+      const line = rawLine.trim();
+      if (headerRe.test(line)) { active = true; continue; }
+      if (active && (isSectionHeader(line) || isExperienceSectionHeader(line) || isModuleHeader(line))) break;
+      if (active && line) out.push(line);
+    }
+    return out;
+  };
+  const cleanBullet = (line) => {
+    const s = String(line || '');
+    // 日期开头的行不要剥（获奖/经历的时间会被误删）
+    if (new RegExp(`^\\s*(?:${YEAR_MONTH}|(?:19|20)\\d{2}年)`).test(s)) return s.trim();
+    return s.replace(/^[•·\-\d.、\s]+/, '').trim();
+  };
   const isModuleHeader = (line) => MODULE_HEADER_HINT.test(String(line || '').trim());
   const looksLikeAbilitySummary = (line) => {
     const text = cleanBullet(line);
@@ -321,7 +380,19 @@
     if (/(敏感度|学习能力|沟通能力|协作能力|抗压能力|责任心|自驱力|好奇心|逻辑思维|产品思维|业务理解|快速上手)/.test(text)) return 'advantages';
     return 'other';
   };
-  const isExperienceSectionHeader = (line) => /(项目经历|项目经验|项目实践|实习经历|实习经验|工作经历|工作经验|职业经历|项目\/校园经历|项目\/校内经历|校园经历)/.test(String(line || '').trim());
+  const isExperienceSectionHeader = (line) => /(项目经历|项目经验|项目实践|实习经历|实习经验|工作经历|工作经验|职业经历|实践经历|相关经历|社会经历|项目\/校园经历|项目\/校内经历|校园经历|项目与实习|实习与项目|项目\/实习|实习\/项目|个人项目|开源项目|项目展示)/.test(String(line || '').trim());
+  const typeFromExpHeader = (line) => {
+    if (/实习/.test(line) && /项目|实践/.test(line)) return 'mixed';
+    if (/实习/.test(line)) return 'internship';
+    if (/工作|职业|社会|实践|相关/.test(line)) return 'work';
+    return 'project';
+  };
+  const COMPANY_TAIL = /(公司|有限公司|科技|信息|网络|大学|学院|研究院|工作室|集团|银行|证券|事务所|医院|政府|委员会|中心)$/;
+  const classifyEntryType = (entry) => {
+    if (/实习/.test(`${entry.role || ''} ${entry.title || ''}`)) return 'internship';
+    if (COMPANY_TAIL.test(String(entry.company || '').trim())) return 'work';
+    return 'project';
+  };
   const parsePeriodLine = (line, currentType) => {
     const periodMatch = String(line || '').match(PERIOD_PREFIX_RE);
     if (!periodMatch) return null;
@@ -356,6 +427,11 @@
       description: ''
     };
   };
+  const parsePeriodTailLine = (line, currentType) => {
+    const m = String(line || '').match(PERIOD_TAIL_RE);
+    if (!m) return null;
+    return parsePeriodLine(`${m[2]} ${m[1]}`, currentType);
+  };
   const pushUnique = (arr, value) => {
     const text = cleanBullet(value);
     if (!text) return;
@@ -383,18 +459,51 @@
     return false;
   };
   function parseResumeText(rawText) {
-    const text = String(rawText || '').replace(/\r/g, '').trim();
+    const text = normalizeRawText(rawText).trim();
     const blocks = splitBlocks(text);
+    const lines = text.split(/\n/).map((x) => x.trim()).filter(Boolean);
+    const headLines = lines.slice(0, 8);
+    const guessName = () => {
+      for (const line of headLines) {
+        const first = (line.split(/[\s|/·,，()]+/).find(Boolean) || '').trim();
+        if (/^[\u4e00-\u9fa5·]{2,4}$/.test(first) && !/(简历|求职|应聘|先生|女士|老师|个人)/.test(first) && !EDUCATION_HINT.test(first) && !isSectionHeader(first) && !isModuleHeader(first)) return first;
+      }
+      return '';
+    };
+    const guessGender = () => (headLines.join('\n').match(/(?:^|[\s|/·,，(])(男|女)(?=[\s|/·,，)岁]|$)/m) || [])[1] || '';
+    const guessBirthday = () => {
+      for (const line of lines.slice(0, 5)) {
+        const labeled = line.match(/(?:出生日期|出生|生日)[:：]?\s*((?:19|20)\d{2}[./年-]\d{1,2}(?:[./月-]\d{1,2}日?)?)/);
+        if (labeled) return normalizeDate(labeled[1]);
+        if (/(男|女|岁)/.test(line)) {
+          const d = line.match(/((?:19|20)\d{2}[./年-]\d{1,2}(?:[./月-]\d{1,2}日?)?)/);
+          if (d) return normalizeDate(d[1]);
+        }
+      }
+      return '';
+    };
     const profile = {
-      name: pickByRegex(text, /姓名[:：]\s*([^\n]+)/),
-      gender: pickByRegex(text, /性别[:：]\s*([^\n]+)/),
-      birthday: normalizeDate(pickByRegex(text, /(?:出生日期|生日)[:：]\s*([^\n]+)/)),
+      name: pickByRegex(text, /姓名[:：]\s*([^\n]+)/) || guessName(),
+      gender: pickByRegex(text, /性别[:：]\s*([^\n]+)/) || guessGender(),
+      birthday: normalizeDate(pickByRegex(text, /(?:出生日期|生日)[:：]\s*([^\n]+)/)) || guessBirthday(),
       city: pickByRegex(text, /(?:所在城市|现居地)[:：]\s*([^\n]+)/),
       idType: pickByRegex(text, /证件类型[:：]\s*([^\n]+)/) || '身份证',
       idNumber: pickByRegex(text, /(?:证件号码|身份证号)[:：]\s*([^\n]+)/),
-      phone: pickByRegex(text, /(?:手机号|电话|手机)[:：]?\s*(1\d{10})/) || pickByRegex(text, /(1\d{10})/),
-      email: pickByRegex(text, /(?:邮箱|Email|E-mail)[:：]?\s*([^\s\n]+)/i),
-      wechat: pickByRegex(text, /(?:微信号|微信)[:：]\s*([^\n]+)/),
+      phone: pickByRegex(text, /(?:手机号|电话|手机|联系电话)[:：]?\s*(1\d{10})/) || pickByRegex(text, /(1\d{10})/),
+      email: pickByRegex(text, /(?:邮箱|Email|E-mail|邮件)[:：]?\s*([^\s\n，,；;、]+)/i) || pickByRegex(text, /([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/),
+      wechat: pickByRegex(text, /(?:微信号|微信|WeChat|wechat|VX)[:：]\s*([^\s，,；;、]+)/),
+      github: pickByRegex(text, /(?:GitHub|Github|GITHUB)[:：]\s*((?:https?:\/\/)?[^\s，,；;、)\]]+)/) || pickByRegex(text, /((?:https?:\/\/)?(?:www\.)?github\.com\/[^\s，,；;、)\]]+)/i),
+      homepage: pickByRegex(text, /(?:个人主页|个人博客|个人空间|个人站点|博客|主页)[:：]\s*([^\s，,；;、)\]]+)/) || pickByRegex(text, /((?:https?:\/\/)?[\w-]+\.github\.io[^\s，,；;、)\]]*)/i),
+      portfolio: pickByRegex(text, /(?:个人作品集网站|作品集网站|个人作品网站|作品集链接|作品网站|作品集|作品链接|个人作品)[:：]\s*([^\s，,；;、)\]]+)/),
+      website: pickByRegex(text, /(?:个人网址|个人网站|网址|网站)[:：]\s*([^\s，,；;、)\]]+)/),
+      linkedin: pickByRegex(text, /(?:LinkedIn|领英)[:：]?\s*((?:https?:\/\/)?(?:www\.)?linkedin\.com\/[^\s，,；;、)\]]+)/i),
+      nativePlace: pickByRegex(text, /籍贯[:：]\s*([^\n]+)/),
+      politicalStatus: pickByRegex(text, /政治面貌[:：]\s*([^\n]+)/),
+      address: pickByRegex(text, /(?:现居地址|居住地址|联系地址|通讯地址)[:：]\s*([^\n]+)/),
+      jobIntent: pickByRegex(text, /(?:求职意向|意向岗位|期望职位|应聘岗位|应聘职位|求职岗位|应聘)[:：]\s*([^\n]+)/),
+      expectedCity: pickByRegex(text, /(?:期望城市|期望工作城市|意向城市|期望地点|期望工作地点)[:：]\s*([^\n]+)/),
+      expectedSalary: pickByRegex(text, /(?:期望薪资|薪资要求|期望薪水|期望月薪|期望年薪|期望待遇)[:：]\s*([^\n]+)/),
+      availableDate: pickByRegex(text, /(?:到岗时间|可到岗时间|可到职时间|入职时间)[:：]\s*([^\n]+)/),
       emergencyContact: pickByRegex(text, /紧急联系人[:：]\s*([^\n]+)/),
       emergencyPhone: pickByRegex(text, /紧急联系方式[:：]\s*([^\n]+)/),
       skills: '',
@@ -406,10 +515,6 @@
     const skillsBucket = [];
     const advantagesBucket = [];
     const otherBucket = [];
-    const flushCurrent = () => {
-      if (current && Object.values(current).some(Boolean)) experiences.push(current);
-      current = null;
-    };
     const collectAbilityLine = (line) => {
       const text = cleanBullet(line);
       if (!text || isModuleHeader(text)) return;
@@ -419,17 +524,26 @@
       else pushUnique(otherBucket, text);
     };
 
-    const lines = text.split(/\n/).map((x) => x.trim()).filter(Boolean);
     const pushDedupe = (bucket, item) => {
-      if (item && Object.values(item).some(Boolean)) bucket.push(item);
+      if (item && Object.values(item).some(Boolean)) {
+        if (item.type === 'mixed') item.type = classifyEntryType(item);
+        // 字段错位纠正：项目要有 title，实习/工作要有 company
+        if (item.type === 'project' && !item.title && item.company) { item.title = item.company; item.company = ''; }
+        if ((item.type === 'internship' || item.type === 'work') && !item.company && item.title) { item.company = item.title; item.title = ''; }
+        bucket.push(item);
+      }
       return null;
     };
     const dedupe = (items) => {
       const seen = new Set();
       return items.filter((item) => {
-        const key = [item.type, item.title, item.company, item.role, item.start, item.end, item.description].join('|');
-        if (seen.has(key)) return false;
-        seen.add(key);
+        // 双键：全字段一致 或 时间段+描述前缀一致（不同策略产出字段结构不同也算重复）
+        const keys = [
+          [item.type, item.title, item.company, item.role, item.start, item.end, item.description].join('|'),
+          `d|${item.start}|${item.end}|${String(item.description || '').slice(0, 16)}`
+        ];
+        if (keys.some((k) => seen.has(k))) return false;
+        keys.forEach((k) => seen.add(k));
         return true;
       });
     };
@@ -438,19 +552,41 @@
       let currentType = 'project';
       let inExperienceSection = false;
       let current = null;
+      let pendingPeriod = '';
       const flush = () => { current = pushDedupe(out, current); };
       for (const line of lines) {
-        if (isModuleHeader(line)) { flush(); inExperienceSection = false; continue; }
+        if (isModuleHeader(line)) { flush(); inExperienceSection = false; pendingPeriod = ''; continue; }
         if (EDUCATION_HINT.test(line) && !isExperienceSectionHeader(line)) continue;
         if (shouldTerminateDescription(line, current)) { flush(); collectAbilityLine(line); continue; }
         if (!current && looksLikeAbilitySummary(line)) { collectAbilityLine(line); continue; }
-        if (isExperienceSectionHeader(line)) { currentType = /实习/.test(line) ? 'internship' : /工作/.test(line) ? 'work' : 'project'; inExperienceSection = true; flush(); continue; }
+        if (isExperienceSectionHeader(line)) { currentType = typeFromExpHeader(line); inExperienceSection = true; flush(); pendingPeriod = ''; continue; }
+        if (isSectionHeader(line)) { flush(); inExperienceSection = false; pendingPeriod = ''; continue; }
         if (!inExperienceSection) continue;
-        const periodLine = parsePeriodLine(line, currentType);
+        // 独立日期行：存起来等下一行公司/项目名
+        if (PERIOD_ONLY_RE.test(line)) { flush(); pendingPeriod = line; continue; }
+        if (pendingPeriod) {
+          const combo = parsePeriodLine(`${pendingPeriod} ${line}`, currentType);
+          if (combo) {
+            if (EDUCATION_HINT.test(combo.title || '') || EDUCATION_HINT.test(combo.company || '')) { pendingPeriod = ''; continue; }
+            flush();
+            current = withPeriodDates(combo);
+            pendingPeriod = '';
+            continue;
+          }
+          if (line.length <= 40 && !/[:：]/.test(line)) {
+            flush();
+            const entry = { type: currentType, title: currentType === 'project' ? line : '', company: currentType === 'project' ? '' : line, role: '', period: pendingPeriod, description: '' };
+            current = withPeriodDates(entry);
+            pendingPeriod = '';
+            continue;
+          }
+          pendingPeriod = '';
+        }
+        const periodLine = parsePeriodLine(line, currentType) || parsePeriodTailLine(line, currentType);
         if (periodLine) {
           if (EDUCATION_HINT.test(periodLine.title || '') || EDUCATION_HINT.test(periodLine.company || '') || EDUCATION_HINT.test(periodLine.role || '')) continue;
           flush();
-          current = { ...periodLine, start: normalizeDate((periodLine.period.match(new RegExp(`(${YEAR_MONTH})`)) || [])[1] || ''), end: normalizeDate((periodLine.period.match(new RegExp(`(?:-|~|至|到)\\s*(${YEAR_MONTH}|至今|present)`, 'i')) || [])[1] || '') };
+          current = withPeriodDates(periodLine);
           continue;
         }
         if (/^[•·\-]/.test(line) || current) {
@@ -467,12 +603,13 @@
       let inExperienceSection = false;
       let current = null;
       for (const line of lines) {
-        if (isExperienceSectionHeader(line)) { current = pushDedupe(out, current); currentType = /实习/.test(line) ? 'internship' : /工作/.test(line) ? 'work' : 'project'; inExperienceSection = true; continue; }
+        if (isExperienceSectionHeader(line)) { current = pushDedupe(out, current); currentType = typeFromExpHeader(line); inExperienceSection = true; continue; }
+        if (isSectionHeader(line)) { current = pushDedupe(out, current); inExperienceSection = false; continue; }
         if (!inExperienceSection) continue;
         if (isModuleHeader(line)) { current = pushDedupe(out, current); inExperienceSection = false; continue; }
-        const mini = line.match(/^(公司名称|公司|项目名称|项目|职位|岗位|角色|开始时间|起始时间|结束时间|截止时间|起止时间|时间周期|时间|描述|工作内容|项目描述)[:：]\s*(.+)$/);
+        const mini = line.match(/^(公司名称|公司|项目名称|项目|职位|岗位|角色|开始时间|起始时间|结束时间|截止时间|起止时间|时间周期|时间|描述|工作内容|项目描述|工作职责|项目职责)[:：]\s*(.+)$/);
         if (!mini) continue;
-        const keyMap = { 公司名称: 'company', 公司: 'company', 项目名称: 'title', 项目: 'title', 职位: 'role', 岗位: 'role', 角色: 'role', 开始时间: 'start', 起始时间: 'start', 结束时间: 'end', 截止时间: 'end', 起止时间: 'period', 时间周期: 'period', 时间: 'period', 描述: 'description', 工作内容: 'description', 项目描述: 'description' };
+        const keyMap = { 公司名称: 'company', 公司: 'company', 项目名称: 'title', 项目: 'title', 职位: 'role', 岗位: 'role', 角色: 'role', 开始时间: 'start', 起始时间: 'start', 结束时间: 'end', 截止时间: 'end', 起止时间: 'period', 时间周期: 'period', 时间: 'period', 描述: 'description', 工作内容: 'description', 项目描述: 'description', 工作职责: 'description', 项目职责: 'description' };
         const key = keyMap[mini[1]];
         const value = /^(开始时间|起始时间|结束时间|截止时间)$/.test(mini[1]) ? normalizeDate(mini[2]) : mini[2].trim();
         if ((key === 'company' || key === 'title') && current && (current.company || current.title)) current = pushDedupe(out, current);
@@ -497,10 +634,23 @@
       let inExperienceSection = false;
       let current = null;
       for (const line of lines) {
-        if (isExperienceSectionHeader(line)) { current = pushDedupe(out, current); currentType = /实习/.test(line) ? 'internship' : /工作/.test(line) ? 'work' : 'project'; inExperienceSection = true; continue; }
+        if (isExperienceSectionHeader(line)) { current = pushDedupe(out, current); currentType = typeFromExpHeader(line); inExperienceSection = true; continue; }
+        if (isSectionHeader(line)) { current = pushDedupe(out, current); inExperienceSection = false; continue; }
         if (!inExperienceSection) continue;
         if (isModuleHeader(line)) { current = pushDedupe(out, current); inExperienceSection = false; continue; }
+        if (PERIOD_ONLY_RE.test(line)) continue;
         if (parsePeriodLine(line, currentType)) continue;
+        // 尾部带日期的公司/项目行：剥出日期建条目
+        const tail = line.match(PERIOD_TAIL_RE);
+        if (tail) {
+          const base = tail[1].trim();
+          if (base && base.length <= 42 && !/[:：]/.test(base)) {
+            current = pushDedupe(out, current);
+            const entry = { type: currentType, title: currentType === 'project' ? base : '', company: currentType === 'project' ? '' : base, role: '', period: tail[2], description: '' };
+            current = withPeriodDates(entry);
+            continue;
+          }
+        }
         if (looksLikeCompanyLine(line)) { current = pushDedupe(out, current); current = { type: currentType, title: '', company: line, role: '', start: '', end: '', description: '' }; continue; }
         if (current && !current.role && looksLikeRoleLine(line)) { current.role = line; continue; }
         if (current) current.description = `${current.description}${current.description ? '\n' : ''}${line.replace(/^[•·\-]\s*/, '')}`;
@@ -513,11 +663,40 @@
     profile.advantages = mergeBullets(profile.advantages, advantagesBucket);
     profile.otherInfo = mergeBullets(profile.otherInfo, otherBucket);
     Object.assign(profile, extractModuleProfile(text));
+
+    // 技能专区：整段按分隔符拆成标签（不再依赖碰巧路过）
+    const skillSectionLines = collectGenericSection(text, /^(专业技能|技能|技能与工具|技术栈|技能总结|专业能力|专业技能与优势|技能优势)(?:[:：]?\s*)$/i);
+    if (skillSectionLines.length) {
+      const tokens = skillSectionLines
+        .flatMap((l) => cleanBullet(l).replace(/^(专业技能|技能|技术栈|技能与工具|编程语言|数据库|框架|开发工具|工具)[:：]\s*/, '').split(/[,，、/|·;；]+/))
+        .map((x) => x.trim())
+        .filter((x) => x && x.length <= 30 && !lineHasDate(x));
+      profile.skills = mergeTags(profile.skills, tokens);
+    }
+    // 自我评价/个人优势专区
+    const advantageSectionLines = collectGenericSection(text, /^(自我评价|个人总结|个人评价|个人优势|核心优势|综合能力|自我介绍)(?:[:：]?\s*)$/i);
+    if (advantageSectionLines.length) {
+      const items = advantageSectionLines
+        .map((l) => cleanBullet(l).replace(/^(自我评价|个人总结|个人评价|个人优势|综合能力|自我介绍)[:：]\s*/, ''))
+        .filter(Boolean);
+      profile.advantages = mergeBullets(profile.advantages, items);
+    }
+    // 证书兜底：全文扫描常见证书写法（语言小节里出现的除外）
+    if (!profile.certificates) {
+      const langSectionText = collectSectionLines(text, 'languages').join('\n');
+      const certLines = lines
+        .map((l) => cleanBullet(l))
+        .filter((l) => l && l.length <= 60 && /CET-?[46]|英语四级|英语六级|普通话|计算机(等级|二级|三级|四级)|教师资格证|软考|雅思|托福|TOEFL|IELTS|驾驶证|证券从业|基金从业|会计从业|法律职业|注册会计师|CPA/i.test(l))
+        .filter((l) => !langSectionText.includes(l));
+      if (certLines.length) profile.certificates = certLines.map((l) => `名称：${l}`).join('\n\n');
+    }
     return { profile, experiences, rawText: text, blocks };
   }
   function decodeXmlText(xml) {
     return String(xml || '')
       .replace(/<w:tab\/>/g, '\t')
+      .replace(/<\/w:tc>/g, '\t')
+      .replace(/<\/w:tr>/g, '\n')
       .replace(/<w:br\/>/g, '\n')
       .replace(/<w:cr\/>/g, '\n')
       .replace(/<\/w:p>/g, '\n')
@@ -613,7 +792,61 @@
   chrome.runtime.onMessage.addListener((message) => { if (message?.type === 'RESUME_PANEL_OPEN') return ensurePanel().then(() => { panelVisible = true; updatePanelVisibility(); return { ok: true }; }); if (message?.type === 'RESUME_PANEL_HIDE') { panelVisible = false; updatePanelVisibility(); return Promise.resolve({ ok: true }); } });
   function setNativeValue(el, value) { const proto = Object.getPrototypeOf(el); const desc = Object.getOwnPropertyDescriptor(proto, 'value'); if (desc?.set) desc.set.call(el, value); else el.value = value; el.dispatchEvent(new Event('input', { bubbles: true })); el.dispatchEvent(new Event('change', { bubbles: true })); }
   async function copyValue(value) { try { await navigator.clipboard.writeText(value); return true; } catch { try { const ta = document.createElement('textarea'); ta.value = value; ta.style.position = 'fixed'; ta.style.left = '-9999px'; document.body.appendChild(ta); ta.focus(); ta.select(); document.execCommand('copy'); ta.remove(); return true; } catch { return false; } } }
-  function toast(msg, isError = false) { const tip = document.createElement('div'); tip.className = `raf-tip${isError ? ' err' : ''}`; tip.textContent = msg; document.body.appendChild(tip); setTimeout(() => tip.remove(), 1800); }
+  function toast(msg, isError = false) {
+    const panel = document.getElementById(PANEL_ID);
+    const host = panel || document.body;
+    const tip = document.createElement('div');
+    tip.className = `raf-tip${isError ? ' err' : ''}`;
+    tip.textContent = msg;
+    host.appendChild(tip);
+    if (panel) {
+      // 面板内堆叠，避免多条提示互相遮挡
+      const index = panel.querySelectorAll(':scope > .raf-tip').length - 1;
+      tip.style.top = `${12 + Math.max(0, index) * 48}px`;
+    }
+    if (!isError) { setTimeout(() => tip.remove(), 1800); return; }
+    // 错误提示：常驻显示，点击复制错误内容并关闭
+    tip.classList.add('sticky');
+    const hint = document.createElement('span');
+    hint.className = 'raf-tip-hint';
+    hint.textContent = '（点击复制并关闭）';
+    tip.appendChild(hint);
+    tip.addEventListener('click', async () => {
+      await copyValue(msg);
+      tip.remove();
+    });
+  }
+  // 进度提示：持续显示直到 done/fail，不会被点掉也不会自动消失
+  function toastProgress(msg) {
+    const panel = document.getElementById(PANEL_ID);
+    const host = panel || document.body;
+    const tip = document.createElement('div');
+    tip.className = 'raf-tip progress';
+    tip.textContent = msg;
+    host.appendChild(tip);
+    if (panel) {
+      const index = panel.querySelectorAll(':scope > .raf-tip').length - 1;
+      tip.style.top = `${12 + Math.max(0, index) * 48}px`;
+    }
+    return {
+      done(finalMsg) {
+        tip.classList.remove('progress');
+        tip.classList.add('ok');
+        tip.textContent = finalMsg;
+        setTimeout(() => tip.remove(), 3000);
+      },
+      fail(errMsg) {
+        tip.classList.remove('progress');
+        tip.classList.add('err', 'sticky');
+        tip.textContent = errMsg;
+        const hint = document.createElement('span');
+        hint.className = 'raf-tip-hint';
+        hint.textContent = '（点击复制并关闭）';
+        tip.appendChild(hint);
+        tip.addEventListener('click', async () => { await copyValue(errMsg); tip.remove(); });
+      }
+    };
+  }
   function setImportDebug(lines) { importDebug = lines; if (listRoot && currentView === 'preview') renderCurrentView(listRoot, { preserveScroll: true }); }
   function updatePanelVisibility() {
     const panel = document.getElementById(PANEL_ID);
@@ -682,6 +915,83 @@
     }
   }
   async function fillToActive(value) { const copied = await copyValue(value); const target = document.activeElement && isEditable(document.activeElement) ? document.activeElement : lastActiveEditable; if (target && isEditable(target)) { if (target.isContentEditable) { target.focus(); document.execCommand('selectAll', false, null); document.execCommand('insertText', false, value); } else { target.focus(); setNativeValue(target, value); } toast(copied ? '已复制并写入输入框' : '已写入输入框'); return; } toast(copied ? '未找到输入框，内容已复制' : '请先点击目标输入框后再点字段', !copied); }
+  const AI_SYSTEM_PROMPT = `你是专业的简历解析助手。把用户发来的简历纯文本解析为结构化 JSON，只输出 JSON 本身，不要输出任何解释或 markdown 代码块。
+
+输出格式（字段不能遗漏，没有的信息用空字符串 ""，没有条目的模块用空数组 []）：
+{
+  "profile": {
+    "name": "", "gender": "", "birthday": "", "city": "", "idType": "", "idNumber": "",
+    "phone": "", "email": "", "wechat": "", "github": "", "homepage": "", "portfolio": "", "website": "", "linkedin": "",
+    "emergencyContact": "", "emergencyPhone": "",
+    "school": "", "college": "", "major": "", "degree": "", "educationStart": "", "educationEnd": "", "mainCourses": "",
+    "nativePlace": "", "politicalStatus": "", "address": "",
+    "jobIntent": "", "expectedCity": "", "expectedSalary": "", "availableDate": "",
+    "skills": "技能标签，用 / 分隔，例如：React / TypeScript / Node.js",
+    "advantages": "个人优势/自我评价，每行一条",
+    "otherInfo": "无法归类的其他信息，每行一条"
+  },
+  "experiences": [
+    { "type": "internship", "company": "", "title": "", "role": "", "start": "YYYY-MM", "end": "YYYY-MM 或 至今", "description": "职责与成果，每行一条，保留量化数据" }
+  ],
+  "certificates": [ { "name": "", "date": "", "description": "" } ],
+  "awards": [ { "name": "", "date": "", "description": "" } ],
+  "academicWorks": [ { "name": "", "date": "", "description": "" } ],
+  "languages": [ { "language": "", "level": "", "score": "" } ],
+  "campusExperience": [ { "name": "", "role": "", "start": "", "end": "", "description": "" } ]
+}
+
+要求：
+- experiences 的 type 只能是：internship=实习经历，work=全职/工作经历，project=项目/个人作品/竞赛项目
+- 实习/工作填 company，项目填 title，不要两个都填
+- 日期统一 YYYY-MM 格式；在读/在职的结束时间填 至今
+- 严格忠于原文，不要编造原文没有的信息；双栏/表格排版的简历请自行理顺阅读顺序`;
+  async function aiParseResume(rawText, apiKey, model) {
+    const response = await chrome.runtime.sendMessage({
+      type: 'DEEPSEEK_PARSE',
+      apiKey,
+      model,
+      systemPrompt: AI_SYSTEM_PROMPT,
+      resumeText: String(rawText || '').slice(0, 12000)
+    });
+    if (!response?.ok) throw new Error(response?.error || 'AI 请求失败');
+    const content = String(response.content || '').trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim();
+    if (!content) throw new Error('AI 返回了空内容（可能被思考模式占满额度）');
+    try {
+      return JSON.parse(content);
+    } catch {
+      throw new Error(`AI 返回的不是合法 JSON：${content.slice(0, 120)}`);
+    }
+  }
+  function mergeAiParsed(localParsed, ai) {
+    const profile = { ...(localParsed?.profile || {}) };
+    const aiProfile = ai?.profile || {};
+    // 标量字段：AI 优先，空值保留本地结果
+    [...BASIC_FIELDS.map((f) => f.key), 'skills', 'advantages', 'otherInfo'].forEach((key) => {
+      const value = aiProfile[key];
+      if (typeof value === 'string' && value.trim()) profile[key] = value.trim();
+    });
+    // 记录型模块：AI 返回数组，转成存储格式
+    ['certificates', 'awards', 'academicWorks', 'languages', 'campusExperience'].forEach((key) => {
+      const list = Array.isArray(ai?.[key]) ? ai[key] : [];
+      const saved = saveRecords(list, byKey(MODULES, key).fields);
+      if (saved) profile[key] = saved;
+    });
+    // 经历：AI 有结果就用 AI 的，没有保留本地
+    let experiences = localParsed?.experiences || [];
+    if (Array.isArray(ai?.experiences) && ai.experiences.length) {
+      const aiExp = ai.experiences.map((x) => ({
+        type: ['internship', 'project', 'work'].includes(x?.type) ? x.type : 'project',
+        title: String(x?.title || ''),
+        company: String(x?.company || ''),
+        role: String(x?.role || ''),
+        start: normalizeDate(x?.start || ''),
+        end: normalizeDate(x?.end || ''),
+        description: String(x?.description || '')
+      })).filter((x) => Object.values(x).some((v) => String(v || '').trim()));
+      if (aiExp.length) experiences = aiExp;
+    }
+    return { profile, experiences, rawText: localParsed?.rawText || '' };
+  }
   async function handleImport(file) {
     const debug = [];
     if (!file) return;
@@ -728,8 +1038,33 @@
         }
       }
 
-      const parsed = parseResumeText(rawText || '');
-      debug.push(`parseResumeText: 成功`);
+      let parsed = parseResumeText(rawText || '');
+      debug.push(`parseResumeText: 成功 (本地规则)`);
+      const aiSettings = await chrome.storage.local.get([AI_KEY, AI_ENABLED_KEY, AI_MODEL_KEY]);
+      if (aiSettings[AI_ENABLED_KEY] && aiSettings[AI_KEY]) {
+        try {
+          debug.push('AI 解析: 请求 DeepSeek 中...');
+          setImportDebug([...debug]);
+          const progress = toastProgress('⏳ AI 解析中，通常需要 5-20 秒…');
+          const aiStartedAt = Date.now();
+          try {
+            const aiData = await aiParseResume(rawText, aiSettings[AI_KEY], aiSettings[AI_MODEL_KEY] || AI_MODEL_DEFAULT);
+            parsed = mergeAiParsed(parsed, aiData);
+            const cost = Math.round((Date.now() - aiStartedAt) / 1000);
+            debug.push(`AI 解析: 成功 (${cost}s)`);
+            progress.done(`✅ AI 解析完成（${cost}s）`);
+          } catch (aiError) {
+            console.warn('AI parse failed, fallback to local', aiError);
+            debug.push(`AI 解析: 失败（已使用本地结果）-> ${String(aiError?.message || aiError)}`);
+            progress.fail(`AI 解析失败，已使用本地识别结果：${String(aiError?.message || aiError)}`);
+          }
+        } catch (outerError) {
+          console.warn(outerError);
+        }
+      } else if (aiSettings[AI_ENABLED_KEY] && !aiSettings[AI_KEY]) {
+        debug.push('AI 解析: 已开启但未填写 API Key，已使用本地识别');
+        toast('AI 开关已开但没填 API Key，本次使用本地识别', true);
+      }
       const editable = buildEditable(parsed);
       skipStorageRenderCount += 1;
       await chrome.storage.local.set({
@@ -740,13 +1075,24 @@
       });
       setImportDebug(debug);
       toast('简历已导入');
-      if (listRoot) renderCurrentView(listRoot, { preserveScroll: true });
+      // 导入完成自动跳到「预览」页，实时查看解析结果
+      currentView = 'preview';
+      const panelEl = document.getElementById(PANEL_ID);
+      if (panelEl) {
+        panelEl.querySelector('#raf-preview-tab')?.classList.add('active');
+        panelEl.querySelector('#raf-edit-tab')?.classList.remove('active');
+        panelEl.querySelector('#raf-settings-tab')?.classList.remove('active');
+      }
+      await chrome.storage.local.set({ [VIEW_KEY]: 'preview' });
+      if (listRoot) renderCurrentView(listRoot);
     } catch (error) {
       console.error(error);
       const msg = String(error?.message || '');
       debug.push(`最终异常: ${msg || '未知错误'}`);
       setImportDebug(debug);
-      if (/zip|central directory|end of central directory/i.test(msg)) {
+      if (/context invalidated/i.test(msg)) {
+        toast('扩展刚更新过，请刷新当前网页后重试', true);
+      } else if (/zip|central directory|end of central directory/i.test(msg)) {
         toast(`文件内容不像有效的 .docx：${msg}`, true);
       } else if (msg) {
         toast(`docx 解析失败：${msg}`, true);
@@ -863,7 +1209,7 @@
 
     const noteSection = document.createElement('section');
     noteSection.className = 'raf-edit-section raf-settings-section raf-settings-note-section';
-    noteSection.appendChild(sectionHead('Chauny后仰跳投'));
+    noteSection.appendChild(sectionHead('chaunyoffer'));
     const noteCard = document.createElement('div');
     noteCard.className = 'raf-setting-card';
     const noteMeta = document.createElement('div');
@@ -904,6 +1250,72 @@
     toolsRow.appendChild(clearBtn);
     toolsSection.appendChild(toolsRow);
     wrap.appendChild(toolsSection);
+
+    // AI 深度解析（DeepSeek BYOK）
+    const aiSection = document.createElement('section');
+    aiSection.className = 'raf-edit-section raf-settings-section';
+    aiSection.appendChild(sectionHead('AI 深度解析'));
+    const aiCard = document.createElement('div');
+    aiCard.className = 'raf-setting-card';
+    const aiMeta = document.createElement('div');
+    aiMeta.className = 'raf-setting-meta';
+    aiMeta.innerHTML = `<strong>接入你自己的 DeepSeek API Key</strong><span>开启后，导入简历会同时调用 DeepSeek 解析，识别率更高；失败会自动回落本地规则。Key 只保存在本地浏览器。注意：简历文本将发送到 DeepSeek API。申请地址：platform.deepseek.com</span>`;
+    aiCard.appendChild(aiMeta);
+    const keyInput = document.createElement('input');
+    keyInput.className = 'raf-edit-input';
+    keyInput.type = 'password';
+    keyInput.placeholder = 'sk-...';
+    keyInput.autocomplete = 'off';
+    aiCard.appendChild(keyInput);
+    const aiToggle = document.createElement('label');
+    aiToggle.className = 'raf-pin';
+    aiToggle.style.width = 'fit-content';
+    const aiToggleInput = document.createElement('input');
+    aiToggleInput.type = 'checkbox';
+    aiToggle.appendChild(aiToggleInput);
+    aiToggle.appendChild(document.createTextNode(' 导入简历时启用 AI 解析'));
+    aiCard.appendChild(aiToggle);
+    const modelRow = document.createElement('div');
+    modelRow.className = 'raf-setting-control';
+    const modelLabel = document.createElement('span');
+    modelLabel.textContent = '模型';
+    modelLabel.style.cssText = 'font-size:12px;color:#6f6f6f;font-weight:700;';
+    const modelSelect = document.createElement('select');
+    modelSelect.className = 'raf-edit-input';
+    modelSelect.style.cssText = 'flex:1;min-height:34px;padding:6px 10px;';
+    [['deepseek-v4-pro', 'deepseek-v4-pro（更准，推荐）'], ['deepseek-v4-flash', 'deepseek-v4-flash（更快更便宜）']].forEach(([value, text]) => {
+      const opt = document.createElement('option');
+      opt.value = value;
+      opt.textContent = text;
+      modelSelect.appendChild(opt);
+    });
+    modelRow.appendChild(modelLabel);
+    modelRow.appendChild(modelSelect);
+    aiCard.appendChild(modelRow);
+    aiSection.appendChild(aiCard);
+    wrap.appendChild(aiSection);
+
+    chrome.storage.local.get([AI_KEY, AI_ENABLED_KEY, AI_MODEL_KEY]).then((data) => {
+      keyInput.value = data[AI_KEY] || '';
+      aiToggleInput.checked = !!data[AI_ENABLED_KEY];
+      modelSelect.value = data[AI_MODEL_KEY] || AI_MODEL_DEFAULT;
+    });
+    keyInput.addEventListener('input', async () => {
+      await chrome.storage.local.set({ [AI_KEY]: keyInput.value.trim() });
+    });
+    keyInput.addEventListener('change', async () => {
+      const value = keyInput.value.trim();
+      await chrome.storage.local.set({ [AI_KEY]: value });
+      toast(value ? 'API Key 已保存' : 'API Key 已清除');
+    });
+    aiToggleInput.addEventListener('change', async () => {
+      await chrome.storage.local.set({ [AI_ENABLED_KEY]: aiToggleInput.checked });
+      toast(aiToggleInput.checked ? 'AI 解析已开启' : 'AI 解析已关闭');
+    });
+    modelSelect.addEventListener('change', async () => {
+      await chrome.storage.local.set({ [AI_MODEL_KEY]: modelSelect.value });
+      toast(`已切换模型：${modelSelect.value}`);
+    });
 
     const panelSection = document.createElement('section');
     panelSection.className = 'raf-edit-section raf-settings-section';
@@ -1293,13 +1705,11 @@
     document.body.appendChild(panel);
 
     const listEl = panel.querySelector('#raf-list');
-    const dragBlur = panel.querySelector('.raf-drag-blur');
     const settingsTab = panel.querySelector('#raf-settings-tab');
     const pinBtn = panel.querySelector('#raf-pin-btn');
     const closeEl = panel.querySelector('#raf-close');
     const previewTab = panel.querySelector('#raf-preview-tab');
     const editTab = panel.querySelector('#raf-edit-tab');
-    const modeGroup = panel.querySelector('.raf-mode-group');
     const applyToolbarByView = () => {
       const isSettings = currentView === 'settings';
       const isEdit = currentView === 'edit';
@@ -1384,9 +1794,14 @@
       e.preventDefault();
     };
 
-    dragBlur.addEventListener('mousedown', beginDrag);
-    modeGroup?.addEventListener('mousedown', (e) => {
-      if (e.target !== modeGroup) return;
+    // 整块底板可拖动：命中内容块 / 交互控件 / 滚动条时不触发
+    const NO_DRAG_SELECTOR = 'input, textarea, select, button, a, label, [contenteditable], .raf-edit-section, .raf-debug, .raf-tip, .raf-status';
+    panel.addEventListener('mousedown', (e) => {
+      if (e.button !== 0) return;
+      const t = e.target;
+      if (!(t instanceof Element) || !panel.contains(t)) return;
+      if (t.closest(NO_DRAG_SELECTOR)) return;
+      if (e.offsetX >= t.clientWidth || e.offsetY >= t.clientHeight) return; // 滚动条区域
       beginDrag(e);
     });
     document.addEventListener('mousemove', (e) => {

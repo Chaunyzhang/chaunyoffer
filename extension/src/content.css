@@ -1,25 +1,35 @@
+/* ============================================================
+   Chauny 简历助手 · 液态玻璃主题 (参考 yzrt/纯CSS液态玻璃)
+   核心语言：半透明玻璃 + 多层内高光 + 对角光泽 ::after + 柔和投影
+   ============================================================ */
 :root {
-  --raf-bg: linear-gradient(180deg, rgba(15, 23, 42, 0.9), rgba(2, 6, 23, 0.9));
-  --raf-panel-border: rgba(71, 85, 105, 0.55);
-  --raf-panel-highlight: rgba(148, 163, 184, 0.25);
-  --raf-panel-shadow: 0 24px 68px rgba(2, 6, 23, 0.5), 0 10px 24px rgba(15, 23, 42, 0.35);
-  --raf-head-bg:
-    linear-gradient(
-      180deg,
-      rgba(255, 255, 255, 0.9) 0%,
-      rgba(252, 254, 255, 0.9) 30%,
-      rgba(235, 245, 251, 0.5) 68%,
-      rgba(220, 236, 246, 0.08) 100%
-    );
-  --raf-head-fg: #163447;
-  --raf-text: #0f172a;
-  --raf-muted: #64748b;
-  --raf-soft: #f8fafc;
-  --raf-line: #e2e8f0;
-  --raf-accent: #52b8eb;
-  --raf-accent-soft: rgba(127, 216, 255, 0.18);
-  --raf-card: #ffffff;
-  --raf-card-hover: #f8fafc;
+  --raf-text: #3e3e3e;
+  --raf-text-strong: #2b2b2b;
+  --raf-muted: #8a8a8a;
+  --raf-line: rgba(255, 255, 255, 0.55);
+  --raf-dark: #3e3e3e;
+  /* 液态玻璃核心阴影（大元素） */
+  --raf-glass-lg:
+    inset 2px -2px 1px -1px rgba(255, 255, 255, 0.9),
+    inset -2px 2px 1px -1px rgba(255, 255, 255, 0.9),
+    inset 6px -6px 1px -6px rgba(255, 255, 255, 0.55),
+    inset -6px 6px 1px -6px rgba(255, 255, 255, 0.55),
+    inset 0 0 2px rgba(0, 0, 0, 0.45),
+    0 4px 8px rgba(0, 0, 0, 0.16);
+  /* 液态玻璃核心阴影（小元素/按钮） */
+  --raf-glass-sm:
+    inset 2px -2px 1px -1px rgba(255, 255, 255, 0.85),
+    inset -2px 2px 1px -1px rgba(255, 255, 255, 0.85),
+    inset 0 0 2px rgba(0, 0, 0, 0.35),
+    0 3px 6px rgba(0, 0, 0, 0.14);
+  /* 对角光泽 */
+  --raf-gloss: linear-gradient(
+    45deg,
+    rgba(255, 255, 255, 0.75) 0%,
+    transparent 28%,
+    transparent 72%,
+    rgba(255, 255, 255, 0.75) 100%
+  );
 }
 
 #resume-autofill-panel {
@@ -35,30 +45,53 @@
   z-index: 2147483647;
   width: var(--raf-panel-width);
   height: var(--raf-panel-height);
-  background: transparent;
-  border: 1px solid var(--raf-panel-border);
-  border-radius: 20px;
-  box-shadow: var(--raf-panel-shadow);
-  overflow: hidden;
+  background: rgba(255, 255, 255, 0.26);
+  backdrop-filter: blur(18px) saturate(180%);
+  -webkit-backdrop-filter: blur(18px) saturate(180%);
+  border: 1px solid rgba(255, 255, 255, 0.55);
+  border-radius: 28px;
   box-shadow:
-    var(--raf-panel-shadow),
-    inset 0 1px 0 var(--raf-panel-highlight);
-  font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    inset 2px -2px 2px -1px rgba(255, 255, 255, 0.9),
+    inset -2px 2px 2px -1px rgba(255, 255, 255, 0.7),
+    inset 0 0 3px rgba(0, 0, 0, 0.25),
+    0 24px 60px rgba(0, 0, 0, 0.28),
+    0 6px 18px rgba(0, 0, 0, 0.14);
+  overflow: hidden;
+  font-family: "Microsoft YaHei", "PingFang SC", "Segoe UI", sans-serif;
+  color: var(--raf-text);
   filter: brightness(var(--raf-panel-brightness));
+}
+
+/* 面板整体对角光泽（不挡交互） */
+#resume-autofill-panel::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  border-radius: inherit;
+  background: linear-gradient(
+    135deg,
+    rgba(255, 255, 255, 0.4) 0%,
+    transparent 22%,
+    transparent 85%,
+    rgba(255, 255, 255, 0.3) 100%
+  );
+  filter: blur(2px);
+  pointer-events: none;
 }
 
 #resume-autofill-panel .raf-head {
   position: absolute;
-  top: 12px;
-  left: 12px;
-  right: 12px;
+  top: 14px;
+  left: 14px;
+  right: 14px;
   z-index: 4;
   display: flex;
   justify-content: center;
   align-items: center;
   padding: 0;
   background: transparent;
-  color: var(--raf-head-fg);
+  color: var(--raf-text);
   cursor: move;
   pointer-events: auto;
 }
@@ -80,14 +113,11 @@
   content: "";
   position: absolute;
   inset: 0;
-  background: rgba(20, 28, 38, 0.02);
-  backdrop-filter: blur(10000px) brightness(0.72) saturate(0.72) contrast(0.86);
-  -webkit-backdrop-filter: blur(10000px) brightness(0.72) saturate(0.72) contrast(0.86);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.55) 0%, rgba(255, 255, 255, 0.25) 55%, rgba(255, 255, 255, 0) 100%);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
   mask-image: linear-gradient(180deg, rgba(0, 0, 0, 1) 0%, rgba(0, 0, 0, 0) 100%);
   -webkit-mask-image: linear-gradient(180deg, rgba(0, 0, 0, 1) 0%, rgba(0, 0, 0, 0) 100%);
-  will-change: backdrop-filter, -webkit-backdrop-filter;
-  transform: translateZ(0);
-  backface-visibility: hidden;
   pointer-events: none;
 }
 
@@ -113,11 +143,12 @@
   display: inline-flex;
   align-items: center;
   width: fit-content;
-  padding: 3px 8px;
-  border: 1px solid rgba(22, 52, 71, 0.16);
+  padding: 3px 10px;
+  border: 1px solid var(--raf-line);
   border-radius: 999px;
-  background: rgba(244, 251, 255, 0.58);
-  color: #355368;
+  background: rgba(255, 255, 255, 0.35);
+  box-shadow: var(--raf-glass-sm);
+  color: var(--raf-text);
   font-size: 10px;
   letter-spacing: 0.03em;
 }
@@ -125,32 +156,39 @@
 #resume-autofill-panel .raf-actions {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
   flex-shrink: 0;
   white-space: nowrap;
   pointer-events: auto;
 }
 
+/* 顶部胶囊导航 = 玻璃条 */
 #resume-autofill-panel .raf-mode-group {
   position: relative;
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 4px;
   flex-wrap: nowrap;
-  padding: 7px;
-  border-radius: 20px;
-  border: 1px solid rgba(180, 203, 220, 0.18);
-  background: rgba(103, 157, 196, 0.12);
-  box-shadow: none;
-  backdrop-filter: blur(15px) saturate(170%);
-  -webkit-backdrop-filter: blur(15px) saturate(170%);
+  padding: 5px;
+  border: 1px solid var(--raf-line);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.28);
+  backdrop-filter: blur(10px) saturate(150%);
+  -webkit-backdrop-filter: blur(10px) saturate(150%);
+  box-shadow: var(--raf-glass-lg);
   overflow: hidden;
   user-select: none;
   -webkit-user-select: none;
 }
 
 #resume-autofill-panel .raf-mode-group::before {
-  content: none;
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: var(--raf-gloss);
+  filter: blur(2px);
+  pointer-events: none;
 }
 
 #resume-autofill-panel .raf-mode-group > * {
@@ -162,42 +200,51 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 5px 8px;
+  padding: 5px 10px;
+  border: 1px solid var(--raf-line);
   border-radius: 999px;
-  background: rgba(244, 251, 255, 0.56);
+  background: rgba(255, 255, 255, 0.28);
+  box-shadow: var(--raf-glass-sm);
+  color: var(--raf-text);
   font-size: 11px;
   white-space: nowrap;
 }
 
 #resume-autofill-panel .raf-pin input {
   margin: 0;
-  accent-color: #52b8eb;
+  accent-color: var(--raf-dark);
 }
 
 #resume-autofill-panel .raf-close {
-  border: 1px solid rgba(22, 52, 71, 0.16);
+  position: relative;
+  overflow: hidden;
+  border: 1px solid var(--raf-line);
   min-width: 52px;
   height: 30px;
   border-radius: 999px;
-  background: rgba(244, 251, 255, 0.62);
-  color: var(--raf-head-fg);
+  background: rgba(255, 255, 255, 0.28);
+  box-shadow: var(--raf-glass-sm);
+  color: var(--raf-text);
   cursor: pointer;
   font-size: 11px;
   font-weight: 600;
   line-height: 28px;
   padding: 0 10px;
-  transition: background 0.18s ease, transform 0.18s ease;
+  transition: 0.25s;
 }
 
 #resume-autofill-panel .raf-close:hover {
-  background: rgba(255, 255, 255, 0.8);
-  transform: translateY(-1px);
+  background: rgba(255, 255, 255, 0.5);
+}
+
+#resume-autofill-panel .raf-close:active {
+  transform: scale(0.95);
 }
 
 #resume-autofill-panel .raf-sub {
   padding: 9px 14px 10px;
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.86), rgba(248, 250, 252, 0.92));
-  border-bottom: 1px solid var(--raf-line);
+  background: rgba(255, 255, 255, 0.3);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.45);
   color: var(--raf-muted);
   font-size: 11px;
   line-height: 1.4;
@@ -211,9 +258,7 @@
   padding: 6px 14px 10px;
   border-top: 0;
   border-bottom: 0;
-  background: var(--raf-head-bg);
-  backdrop-filter: blur(28px) saturate(150%);
-  -webkit-backdrop-filter: blur(28px) saturate(150%);
+  background: transparent;
 }
 
 #resume-autofill-panel .raf-toolbar-main,
@@ -227,13 +272,17 @@
   margin-left: auto;
 }
 
+/* 所有玻璃小按钮 */
 #resume-autofill-panel .raf-import,
 #resume-autofill-panel .raf-mini-btn,
 #resume-autofill-panel .raf-tab,
 #resume-autofill-panel .raf-link-btn {
-  border: 1px solid rgba(160, 198, 225, 0.42);
-  background: rgba(245, 251, 255, 0.24);
-  color: rgba(24, 56, 76, 0.72);
+  position: relative;
+  overflow: hidden;
+  border: 1px solid var(--raf-line);
+  background: rgba(255, 255, 255, 0.3);
+  box-shadow: var(--raf-glass-sm);
+  color: var(--raf-text);
   border-radius: 999px;
   font-size: 12px;
   font-weight: 600;
@@ -241,16 +290,26 @@
   height: 33px;
   line-height: 31px;
   box-sizing: border-box;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.28);
-  backdrop-filter: blur(10px) saturate(130%);
-  -webkit-backdrop-filter: blur(10px) saturate(130%);
-  transition: background 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease, color 0.18s ease, transform 0.18s ease;
+  transition: 0.25s;
+}
+
+#resume-autofill-panel .raf-import::after,
+#resume-autofill-panel .raf-mini-btn::after,
+#resume-autofill-panel .raf-link-btn::after,
+#resume-autofill-panel .raf-settings-tools .raf-glass-btn::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: var(--raf-gloss);
+  filter: blur(2px);
+  pointer-events: none;
 }
 
 #resume-autofill-panel .raf-import,
 #resume-autofill-panel .raf-mini-btn,
 #resume-autofill-panel .raf-tab {
-  padding: 0 11px;
+  padding: 0 13px;
 }
 
 #resume-autofill-panel .raf-import {
@@ -261,33 +320,32 @@
 }
 
 #resume-autofill-panel .raf-mini-btn:hover,
-#resume-autofill-panel .raf-link-btn:hover {
-  background: rgba(248, 253, 255, 0.66);
-  border-color: rgba(129, 186, 220, 0.72);
-  color: #133e5a;
-  box-shadow: 0 8px 16px rgba(84, 146, 184, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.72);
+#resume-autofill-panel .raf-link-btn:hover,
+#resume-autofill-panel .raf-import:hover {
+  background: rgba(255, 255, 255, 0.55);
+  box-shadow:
+    inset 2px -2px 1px -1px rgba(255, 255, 255, 0.9),
+    inset -2px 2px 1px -1px rgba(255, 255, 255, 0.9),
+    inset 0 0 2px rgba(0, 0, 0, 0.35),
+    0 5px 10px rgba(0, 0, 0, 0.18);
 }
 
 #resume-autofill-panel .raf-mini-btn:active,
-#resume-autofill-panel .raf-link-btn:active {
-  transform: translateY(1px);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.42);
+#resume-autofill-panel .raf-link-btn:active,
+#resume-autofill-panel .raf-import:active {
+  transform: scale(0.95);
 }
 
-#resume-autofill-panel .raf-tab.active {
-  background: linear-gradient(180deg, rgba(191, 219, 234, 0.95) 0%, rgba(171, 205, 223, 0.95) 100%);
-  color: #1e4359;
-}
-
+/* 胶囊导航内的 tab：默认隐形，选中变黑糖（Get started 黑箭头语言） */
 #resume-autofill-panel .raf-mode-group .raf-tab {
   min-width: 55px;
   width: 55px;
   padding: 0;
-  border-color: rgba(160, 198, 225, 0.42);
-  background: rgba(245, 251, 255, 0.24);
-  color: rgba(24, 56, 76, 0.72);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.28);
-  transition: background 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease, color 0.18s ease, transform 0.18s ease;
+  border: 1px solid transparent;
+  background: transparent;
+  box-shadow: none;
+  color: var(--raf-muted);
+  transition: 0.25s;
 }
 
 #resume-autofill-panel .raf-mode-group #raf-settings-tab {
@@ -301,49 +359,50 @@
 }
 
 #resume-autofill-panel .raf-mode-group .raf-tab:hover {
-  background: rgba(248, 253, 255, 0.66);
-  border-color: rgba(129, 186, 220, 0.72);
-  color: #133e5a;
-  box-shadow: 0 8px 16px rgba(84, 146, 184, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.72);
+  background: rgba(255, 255, 255, 0.4);
+  border-color: var(--raf-line);
+  color: var(--raf-text);
 }
 
 #resume-autofill-panel .raf-mode-group .raf-tab:active {
-  transform: translateY(1px);
+  transform: scale(0.95);
 }
 
 #resume-autofill-panel .raf-mode-group .raf-tab.active {
-  background: linear-gradient(180deg, rgba(225, 244, 255, 0.92) 0%, rgba(198, 229, 247, 0.9) 100%);
-  border-color: rgba(198, 229, 247, 0.9);
-  color: #174764;
+  background: var(--raf-dark);
+  border-color: rgba(0, 0, 0, 0.2);
   box-shadow:
-    0 6px 14px rgba(66, 134, 176, 0.18),
-    inset 0 1px 0 rgba(255, 255, 255, 0.86);
-  font-weight: 600;
+    0 0 6px rgba(0, 0, 0, 0.3),
+    inset 0 1px 1px rgba(255, 255, 255, 0.25);
+  color: #f5f5f5;
+  font-weight: 700;
 }
 
 #resume-autofill-panel .raf-mode-group .raf-close-tab.active {
-  background: rgba(248, 251, 253, 0.5);
-  border-color: rgba(160, 198, 225, 0.42);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.42);
+  background: transparent;
+  border-color: transparent;
+  box-shadow: none;
+  color: var(--raf-muted);
 }
 
 #resume-autofill-panel .raf-list {
-  height: var(--raf-panel-height);
+  height: 100%;
   overflow: auto;
   position: relative;
   z-index: 1;
-  margin-top: 0;
+  margin: 0;
   padding: calc(var(--raf-head-height) + 18px) 14px var(--raf-list-bottom-pad);
+  cursor: move;
+  cursor: all-scroll;
   background:
-    radial-gradient(circle at top left, rgba(56, 189, 248, calc(0.22 + 0.78 * var(--raf-surface-opacity-level))), transparent 40%),
-    radial-gradient(circle at bottom right, rgba(96, 165, 250, calc(0.18 + 0.82 * var(--raf-surface-opacity-level))), transparent 48%),
-    linear-gradient(180deg, rgba(15, 23, 42, calc(0.12 + 0.88 * var(--raf-surface-opacity-level))), rgba(2, 6, 23, calc(0.18 + 0.82 * var(--raf-surface-opacity-level))));
+    linear-gradient(180deg,
+      rgba(255, 255, 255, calc(0.1 + 0.55 * var(--raf-surface-opacity-level))),
+      rgba(240, 240, 240, calc(0.06 + 0.6 * var(--raf-surface-opacity-level))));
   box-sizing: border-box;
   scrollbar-gutter: stable both-edges;
   scrollbar-width: thin;
-  scrollbar-color: rgba(148, 163, 184, 0.62) transparent;
+  scrollbar-color: rgba(120, 120, 120, 0.45) transparent;
 }
-
 
 #resume-autofill-panel .raf-settings-view {
   display: flex;
@@ -372,15 +431,20 @@
   text-align: center;
 }
 
+/* 设置卡片 = 玻璃卡 */
 #resume-autofill-panel .raf-setting-card {
+  position: relative;
+  overflow: hidden;
   display: flex;
   flex-direction: column;
   gap: 12px;
   padding: 14px;
-  border: 1px solid rgba(255, 255, 255, 0.58);
-  border-radius: 18px;
-  background: rgba(255, 255, 255, 0.94);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.72);
+  border: 1px solid var(--raf-line);
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.4);
+  backdrop-filter: blur(8px) saturate(140%);
+  -webkit-backdrop-filter: blur(8px) saturate(140%);
+  box-shadow: var(--raf-glass-sm);
 }
 
 #resume-autofill-panel .raf-setting-row {
@@ -393,7 +457,7 @@
   display: flex;
   flex-direction: column;
   gap: 5px;
-  color: #20455e;
+  color: var(--raf-text);
 }
 
 #resume-autofill-panel .raf-setting-meta-centered {
@@ -404,13 +468,14 @@
 #resume-autofill-panel .raf-setting-meta strong {
   font-size: 16px;
   font-weight: 700;
+  color: var(--raf-text-strong);
 }
 
 #resume-autofill-panel .raf-setting-meta span,
 #resume-autofill-panel .raf-settings-note {
   font-size: 13px;
   line-height: 1.5;
-  color: rgba(28, 67, 92, 0.76);
+  color: var(--raf-muted);
 }
 
 #resume-autofill-panel .raf-setting-control {
@@ -421,32 +486,40 @@
 
 #resume-autofill-panel .raf-slider {
   flex: 1;
-  height: 6px;
+  height: 8px;
   border-radius: 999px;
-  background: linear-gradient(90deg, rgba(116, 182, 222, 0.38), rgba(82, 184, 235, 0.84));
+  border: 1px solid var(--raf-line);
+  background: rgba(255, 255, 255, 0.45);
+  box-shadow:
+    inset 0 1px 3px rgba(0, 0, 0, 0.15),
+    inset 0 -1px 1px rgba(255, 255, 255, 0.8);
   outline: none;
   appearance: none;
   -webkit-appearance: none;
 }
 
 #resume-autofill-panel .raf-slider::-webkit-slider-thumb {
-  width: 18px;
-  height: 18px;
-  border: 1px solid rgba(146, 198, 227, 0.82);
+  width: 20px;
+  height: 20px;
+  border: 1px solid rgba(0, 0, 0, 0.15);
   border-radius: 50%;
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(221, 239, 250, 0.92));
-  box-shadow: 0 6px 14px rgba(64, 130, 173, 0.24);
+  background: var(--raf-dark);
+  box-shadow:
+    0 2px 5px rgba(0, 0, 0, 0.3),
+    inset 0 1px 1px rgba(255, 255, 255, 0.3);
   cursor: pointer;
   -webkit-appearance: none;
 }
 
 #resume-autofill-panel .raf-slider::-moz-range-thumb {
-  width: 18px;
-  height: 18px;
-  border: 1px solid rgba(146, 198, 227, 0.82);
+  width: 20px;
+  height: 20px;
+  border: 1px solid rgba(0, 0, 0, 0.15);
   border-radius: 50%;
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(221, 239, 250, 0.92));
-  box-shadow: 0 6px 14px rgba(64, 130, 173, 0.24);
+  background: var(--raf-dark);
+  box-shadow:
+    0 2px 5px rgba(0, 0, 0, 0.3),
+    inset 0 1px 1px rgba(255, 255, 255, 0.3);
   cursor: pointer;
 }
 
@@ -454,13 +527,16 @@
   min-width: 50px;
   height: 32px;
   padding: 0 10px;
-  border: 1px solid rgba(173, 210, 231, 0.62);
+  border: 1px solid var(--raf-line);
   border-radius: 999px;
-  background: rgba(244, 251, 255, 0.62);
-  color: #1d425a;
+  background: rgba(255, 255, 255, 0.4);
+  box-shadow:
+    inset 0 1px 3px rgba(0, 0, 0, 0.12),
+    inset 0 -1px 1px rgba(255, 255, 255, 0.7);
+  color: var(--raf-text-strong);
   font-size: 14px;
   font-weight: 700;
-  line-height: 30px;
+  line-height: 32px;
   text-align: center;
   box-sizing: border-box;
 }
@@ -471,6 +547,17 @@
   width: 6px;
   height: 6px;
   background: transparent;
+}
+
+/* 底板保持拖动手型，内容块 / 调试区恢复默认光标 */
+#resume-autofill-panel .raf-head {
+  cursor: move;
+  cursor: all-scroll;
+}
+
+#resume-autofill-panel .raf-edit-section,
+#resume-autofill-panel .raf-debug {
+  cursor: default;
 }
 
 #resume-autofill-panel .raf-list::-webkit-scrollbar-track {
@@ -519,13 +606,13 @@
 }
 
 #resume-autofill-panel .raf-list::-webkit-scrollbar-thumb {
-  background: rgba(148, 163, 184, 0.62);
+  background: rgba(120, 120, 120, 0.4);
   border-radius: 999px;
   border: none;
 }
 
 #resume-autofill-panel .raf-list::-webkit-scrollbar-thumb:hover {
-  background: rgba(100, 116, 139, 0.78);
+  background: rgba(90, 90, 90, 0.55);
 }
 
 #resume-autofill-panel .raf-group-title {
@@ -534,25 +621,32 @@
   z-index: 1;
   margin: 0 0 7px;
   padding: 4px 2px;
-  color: #0f172a;
+  color: var(--raf-muted);
   font-size: 10px;
   font-weight: 700;
   letter-spacing: 0.12em;
   text-transform: uppercase;
-  background: linear-gradient(180deg, rgba(248, 250, 252, 0.96), rgba(248, 250, 252, 0.88));
+  background: linear-gradient(180deg, rgba(250, 250, 250, 0.75), rgba(250, 250, 250, 0));
 }
 
+/* 字段卡片 = 玻璃卡 */
 #resume-autofill-panel .raf-item,
 #resume-autofill-panel .raf-sub-item {
   width: 100%;
   display: block;
   text-align: left;
-  border: 1px solid rgba(226, 232, 240, 0.98);
-  border-radius: 14px;
-  background: rgba(255, 255, 255, 0.92);
+  border: 1px solid var(--raf-line);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.42);
+  backdrop-filter: blur(6px) saturate(130%);
+  -webkit-backdrop-filter: blur(6px) saturate(130%);
+  box-shadow:
+    inset 1px -1px 1px 0 rgba(255, 255, 255, 0.8),
+    inset -1px 1px 1px 0 rgba(255, 255, 255, 0.6),
+    0 3px 8px rgba(0, 0, 0, 0.1);
   cursor: pointer;
   overflow: hidden;
-  transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease, background 0.18s ease;
+  transition: transform 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
 }
 
 #resume-autofill-panel .raf-basic-field {
@@ -566,9 +660,11 @@
 #resume-autofill-panel .raf-item:hover,
 #resume-autofill-panel .raf-sub-item:hover {
   transform: translateY(-1px);
-  border-color: rgba(82, 184, 235, 0.5);
-  box-shadow: 0 14px 28px rgba(15, 23, 42, 0.08);
-  background: var(--raf-card-hover);
+  background: rgba(255, 255, 255, 0.62);
+  box-shadow:
+    inset 1px -1px 1px 0 rgba(255, 255, 255, 0.9),
+    inset -1px 1px 1px 0 rgba(255, 255, 255, 0.7),
+    0 8px 16px rgba(0, 0, 0, 0.14);
 }
 
 #resume-autofill-panel .raf-item .v,
@@ -597,9 +693,9 @@
 
 #resume-autofill-panel .raf-empty {
   padding: 16px 14px;
-  border: 1px dashed #cbd5e1;
-  border-radius: 14px;
-  background: rgba(255, 255, 255, 0.66);
+  border: 1px dashed rgba(255, 255, 255, 0.7);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.25);
   color: var(--raf-muted);
   font-size: 14px;
   text-align: center;
@@ -610,7 +706,7 @@
   align-items: center;
   gap: 7px;
   margin: 12px 2px 6px;
-  color: var(--raf-text);
+  color: var(--raf-text-strong);
   font-size: 15px;
   font-weight: 700;
   line-height: 1.2;
@@ -621,8 +717,10 @@
   width: 10px;
   height: 10px;
   border-radius: 999px;
-  background: linear-gradient(135deg, #7fd8ff, #52b8eb);
-  box-shadow: 0 0 0 4px rgba(127, 216, 255, 0.18);
+  background: var(--raf-dark);
+  box-shadow:
+    0 0 0 3px rgba(255, 255, 255, 0.5),
+    0 2px 4px rgba(0, 0, 0, 0.25);
   flex-shrink: 0;
 }
 
@@ -657,12 +755,12 @@
 }
 
 #resume-autofill-panel .raf-placeholder {
-  color: #94a3b8;
+  color: #a8a8a8;
 }
 
 #resume-autofill-panel .raf-field-title {
-  color: #5b6b78;
-  font-size: 14px;
+  color: #6f6f6f;
+  font-size: 13px;
   font-weight: 700;
   letter-spacing: 0.02em;
   text-transform: none;
@@ -695,39 +793,36 @@
 }
 
 #resume-autofill-panel .raf-settings-tools .raf-glass-btn {
+  position: relative;
+  overflow: hidden;
   width: 100%;
   min-width: 55px;
-  height: 33px;
-  line-height: 31px;
+  height: 36px;
+  line-height: 34px;
   padding: 0 14px;
   border-radius: 999px;
-  border: 1px solid rgba(160, 198, 225, 0.42);
-  background: rgba(245, 251, 255, 0.24);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.28);
-  color: rgba(24, 56, 76, 0.72);
+  border: 1px solid var(--raf-line);
+  background: rgba(255, 255, 255, 0.3);
+  box-shadow: var(--raf-glass-sm);
+  color: var(--raf-text);
   font-size: 12px;
   font-weight: 600;
   text-align: center;
   cursor: pointer;
   box-sizing: border-box;
-  backdrop-filter: blur(10px) saturate(130%);
-  -webkit-backdrop-filter: blur(10px) saturate(130%);
-  transition: background 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease, color 0.18s ease, transform 0.18s ease;
+  transition: 0.25s;
   white-space: nowrap;
 }
 
 #resume-autofill-panel .raf-settings-tools .raf-glass-btn:hover {
-  background: rgba(248, 253, 255, 0.66);
-  border-color: rgba(129, 186, 220, 0.72);
-  color: #133e5a;
-  box-shadow: 0 8px 16px rgba(84, 146, 184, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.72);
+  background: rgba(255, 255, 255, 0.55);
 }
 
 #resume-autofill-panel .raf-settings-tools .raf-glass-btn:active {
-  transform: translateY(1px);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.42);
+  transform: scale(0.95);
 }
 
+/* 编辑区块 = 大玻璃卡 */
 #resume-autofill-panel .raf-edit-section {
   position: relative;
   display: flex;
@@ -735,29 +830,46 @@
   gap: 10px;
   width: 100%;
   padding: 14px;
-  border: 1px solid rgba(255, 255, 255, 0.52);
-  border-radius: 22px;
+  border: 1px solid var(--raf-line);
+  border-radius: 24px;
   background:
     linear-gradient(
       180deg,
-      hsla(210, calc(var(--raf-glass-color-level) * 0.01%), 98%, 0.78),
-      hsla(210, calc(var(--raf-glass-color-level) * 0.01%), 94%, 0.62)
+      hsla(210, calc(var(--raf-glass-color-level) * 0.01%), 99%, 0.5),
+      hsla(210, calc(var(--raf-glass-color-level) * 0.01%), 96%, 0.35)
     );
-  box-shadow:
-    0 10px 30px rgba(120, 160, 190, 0.2),
-    inset 0 1px 0 rgba(255, 255, 255, 0.78);
+  backdrop-filter: blur(10px) saturate(150%);
+  -webkit-backdrop-filter: blur(10px) saturate(150%);
+  box-shadow: var(--raf-glass-lg);
   overflow: hidden;
   box-sizing: border-box;
   background-clip: border-box;
   isolation: isolate;
 }
 
+/* 大玻璃卡对角光泽 */
+#resume-autofill-panel .raf-edit-section::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: var(--raf-gloss);
+  filter: blur(3px);
+  opacity: 0.6;
+  pointer-events: none;
+}
+
+#resume-autofill-panel .raf-edit-section > * {
+  position: relative;
+  z-index: 1;
+}
+
 #resume-autofill-panel .raf-edit-view > .raf-edit-section:nth-child(3n + 1) {
   background:
     linear-gradient(
       180deg,
-      hsla(356, calc(var(--raf-glass-color-level) * 0.01%), 96%, 0.82),
-      hsla(356, calc(var(--raf-glass-color-level) * 0.01%), 92%, 0.62)
+      hsla(356, calc(var(--raf-glass-color-level) * 0.01%), 98%, 0.5),
+      hsla(356, calc(var(--raf-glass-color-level) * 0.01%), 95%, 0.35)
     );
 }
 
@@ -765,8 +877,8 @@
   background:
     linear-gradient(
       180deg,
-      hsla(214, calc(var(--raf-glass-color-level) * 0.01%), 96%, 0.82),
-      hsla(214, calc(var(--raf-glass-color-level) * 0.01%), 92%, 0.64)
+      hsla(214, calc(var(--raf-glass-color-level) * 0.01%), 98%, 0.5),
+      hsla(214, calc(var(--raf-glass-color-level) * 0.01%), 95%, 0.35)
     );
 }
 
@@ -774,8 +886,8 @@
   background:
     linear-gradient(
       180deg,
-      hsla(148, calc(var(--raf-glass-color-level) * 0.01%), 96%, 0.82),
-      hsla(148, calc(var(--raf-glass-color-level) * 0.01%), 92%, 0.64)
+      hsla(148, calc(var(--raf-glass-color-level) * 0.01%), 98%, 0.5),
+      hsla(148, calc(var(--raf-glass-color-level) * 0.01%), 95%, 0.35)
     );
 }
 
@@ -799,9 +911,12 @@
 
 #resume-autofill-panel .raf-edit-input {
   width: 100%;
-  border: 1px solid rgba(226, 232, 240, 0.98);
-  border-radius: 14px;
-  background: rgba(255, 255, 255, 0.86);
+  border: 1px solid var(--raf-line);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.5);
+  box-shadow:
+    inset 0 1px 3px rgba(0, 0, 0, 0.08),
+    inset 0 -1px 1px rgba(255, 255, 255, 0.7);
   color: var(--raf-text);
   font-size: 15px;
   line-height: 1.4;
@@ -809,6 +924,7 @@
   resize: none;
   min-height: 40px;
   box-sizing: border-box;
+  transition: 0.25s;
 }
 
 #resume-autofill-panel .raf-edit-input:focus,
@@ -816,8 +932,12 @@
 #resume-autofill-panel .raf-tag-input:focus,
 #resume-autofill-panel .raf-tag-input:focus-visible {
   outline: none;
-  border-color: rgba(135, 197, 233, 0.9);
-  box-shadow: 0 0 0 2px rgba(135, 197, 233, 0.2);
+  background: rgba(255, 255, 255, 0.75);
+  border-color: rgba(255, 255, 255, 0.9);
+  box-shadow:
+    inset 0 1px 3px rgba(0, 0, 0, 0.08),
+    0 0 0 3px rgba(255, 255, 255, 0.45),
+    0 4px 10px rgba(0, 0, 0, 0.1);
 }
 
 #resume-autofill-panel .raf-textarea-shell {
@@ -848,8 +968,7 @@
   width: 5px;
   min-height: 20px;
   border-radius: 999px;
-  background: rgba(148, 163, 184, 0.66);
-  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.22);
+  background: rgba(120, 120, 120, 0.45);
   opacity: 0;
   transition: background 0.18s ease, opacity 0.18s ease;
   pointer-events: auto;
@@ -857,11 +976,11 @@
 }
 
 #resume-autofill-panel .raf-textarea-shell:hover .raf-textarea-thumb {
-  background: rgba(100, 116, 139, 0.82);
+  background: rgba(90, 90, 90, 0.6);
 }
 
 #resume-autofill-panel .raf-textarea-thumb:hover {
-  background: rgba(71, 85, 105, 0.9);
+  background: rgba(62, 62, 62, 0.75);
 }
 
 #resume-autofill-panel textarea.raf-edit-input::-webkit-scrollbar-track,
@@ -878,9 +997,12 @@
 }
 
 #resume-autofill-panel .raf-edit-card {
-  border: 1px solid rgba(226, 232, 240, 0.98);
-  border-radius: 14px;
-  background: rgba(255, 255, 255, 0.94);
+  border: 1px solid var(--raf-line);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.4);
+  box-shadow:
+    inset 1px -1px 1px 0 rgba(255, 255, 255, 0.8),
+    0 2px 6px rgba(0, 0, 0, 0.08);
   padding: 10px;
   display: flex;
   flex-direction: column;
@@ -895,9 +1017,10 @@
 
 #resume-autofill-panel .raf-edit-card-head strong {
   font-size: 12px;
-  color: #23455c;
+  color: #555;
 }
 
+/* 删除按钮 = 暗色警示玻璃 */
 #resume-autofill-panel .raf-link-btn {
   padding: 0 11px;
   min-width: 55px;
@@ -905,19 +1028,19 @@
   align-items: center;
   justify-content: center;
   line-height: 31px;
-  border-color: rgba(226, 156, 156, 0.42);
-  background: rgba(255, 241, 241, 0.24);
-  color: rgba(141, 38, 38, 0.8);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.26);
-  backdrop-filter: blur(10px) saturate(130%);
-  -webkit-backdrop-filter: blur(10px) saturate(130%);
+  border: 1px solid rgba(255, 255, 255, 0.5);
+  background: rgba(178, 62, 62, 0.12);
+  color: #a03a3a;
 }
 
 #resume-autofill-panel .raf-link-btn:hover {
-  background: rgba(255, 245, 245, 0.66);
-  border-color: rgba(220, 129, 129, 0.72);
+  background: rgba(178, 62, 62, 0.22);
+  box-shadow:
+    inset 2px -2px 1px -1px rgba(255, 255, 255, 0.9),
+    inset -2px 2px 1px -1px rgba(255, 255, 255, 0.9),
+    inset 0 0 2px rgba(0, 0, 0, 0.3),
+    0 5px 10px rgba(160, 58, 58, 0.2);
   color: #8f2d2d;
-  box-shadow: 0 8px 16px rgba(176, 84, 84, 0.18), inset 0 1px 0 rgba(255, 255, 255, 0.7);
 }
 
 #resume-autofill-panel .raf-module-head,
@@ -931,13 +1054,13 @@
 #resume-autofill-panel .raf-module-title {
   font-size: 17px;
   font-weight: 700;
-  color: #1d425a;
+  color: var(--raf-text-strong);
   letter-spacing: 0.01em;
 }
 
 #resume-autofill-panel .raf-edit-entry-head strong {
   font-size: 16px;
-  color: #1f3f57;
+  color: var(--raf-text-strong);
 }
 
 #resume-autofill-panel .raf-edit-entry {
@@ -970,23 +1093,30 @@
 
 #resume-autofill-panel .raf-tag-input {
   width: 100%;
-  border: 1px solid rgba(226, 232, 240, 0.98);
-  border-radius: 12px;
-  background: rgba(255, 255, 255, 0.86);
+  border: 1px solid var(--raf-line);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.5);
+  box-shadow:
+    inset 0 1px 3px rgba(0, 0, 0, 0.08),
+    inset 0 -1px 1px rgba(255, 255, 255, 0.7);
   color: var(--raf-text);
   font-size: 15px;
   line-height: 1.4;
   padding: 9px 12px;
   box-sizing: border-box;
+  transition: 0.25s;
 }
 
 #resume-autofill-panel .raf-preview-value {
   display: block;
   width: 100%;
-  border: 1px solid rgba(211, 225, 239, 0.98);
-  border-radius: 14px;
-  background: rgba(255, 255, 255, 0.84);
+  border: 1px solid var(--raf-line);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.42);
   background-clip: padding-box;
+  box-shadow:
+    inset 1px -1px 1px 0 rgba(255, 255, 255, 0.8),
+    0 3px 8px rgba(0, 0, 0, 0.1);
   color: var(--raf-text);
   font-size: 15px;
   line-height: 1.4;
@@ -995,7 +1125,7 @@
   word-break: break-word;
   white-space: pre-wrap;
   cursor: pointer;
-  transition: box-shadow 0.18s ease, border-color 0.18s ease, transform 0.18s ease;
+  transition: box-shadow 0.2s ease, background 0.2s ease, transform 0.2s ease;
   box-sizing: border-box;
   overflow: hidden;
   -webkit-appearance: none;
@@ -1003,43 +1133,91 @@
 }
 
 #resume-autofill-panel .raf-preview-value:hover {
-  border-color: rgba(82, 184, 235, 0.45);
-  box-shadow: 0 8px 20px rgba(82, 184, 235, 0.12);
+  background: rgba(255, 255, 255, 0.62);
+  box-shadow:
+    inset 1px -1px 1px 0 rgba(255, 255, 255, 0.9),
+    0 8px 16px rgba(0, 0, 0, 0.14);
 }
 
 #resume-autofill-panel .raf-inline-row.single {
   grid-template-columns: 1fr;
 }
 
+/* Toast = 黑糖胶囊（同 Get started 黑箭头语言）
+   默认挂到面板内部；面板不在时才退到页面上 */
 .raf-tip {
   position: fixed;
   top: 24px;
   left: 50%;
   transform: translateX(-50%);
   z-index: 2147483647;
+  border: 1px solid rgba(255, 255, 255, 0.25);
   border-radius: 999px;
-  padding: 8px 12px;
-  background: rgba(15, 23, 42, 0.92);
-  color: #f8fafc;
-  font-size: 11px;
-  box-shadow: 0 12px 30px rgba(15, 23, 42, 0.22);
-  backdrop-filter: blur(10px);
+  padding: 9px 16px;
+  background: rgba(43, 43, 43, 0.92);
+  backdrop-filter: blur(8px);
+  color: #f5f5f5;
+  font-size: 12px;
+  font-family: "Microsoft YaHei", "PingFang SC", "Segoe UI", sans-serif;
+  box-shadow:
+    0 10px 24px rgba(0, 0, 0, 0.3),
+    inset 0 1px 1px rgba(255, 255, 255, 0.2);
+}
+
+#resume-autofill-panel .raf-tip {
+  position: absolute;
+  top: 12px;
+  z-index: 6;
+  max-width: calc(100% - 40px);
+  white-space: normal;
+  text-align: center;
+  line-height: 1.5;
 }
 
 .raf-tip.err {
-  background: rgba(127, 29, 29, 0.94);
+  background: rgba(143, 45, 45, 0.96);
+  cursor: pointer;
+  max-width: min(560px, 86vw);
+  white-space: normal;
+  line-height: 1.5;
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+.raf-tip .raf-tip-hint {
+  display: block;
+  margin-top: 2px;
+  font-size: 10px;
+  opacity: 0.75;
+}
+
+/* 进度提示：呼吸灯动画，全程常驻 */
+.raf-tip.progress {
+  pointer-events: none;
+  animation: raf-tip-pulse 1.4s ease-in-out infinite;
+}
+
+.raf-tip.ok {
+  background: rgba(46, 125, 78, 0.94);
+}
+
+@keyframes raf-tip-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.55; }
 }
 
 #resume-autofill-panel .raf-debug {
   margin-top: 10px;
   padding: 10px 12px;
-  border: 1px dashed rgba(82, 184, 235, 0.45);
-  border-radius: 12px;
-  background: rgba(240, 249, 255, 0.9);
-  color: #315066;
+  border: 1px dashed rgba(255, 255, 255, 0.7);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.3);
+  color: #777;
   font-size: 11px;
   line-height: 1.5;
   word-break: break-word;
+  user-select: text;
+  -webkit-user-select: text;
 }
 
 @media (max-width: 520px) {
