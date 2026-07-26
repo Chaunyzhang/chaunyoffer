@@ -1354,3 +1354,20 @@
   outline: 2px dashed rgba(230, 140, 40, 0.95) !important;
   outline-offset: 1px !important;
 }
+
+/* 模块折叠：点击模块头收起/展开，节省面板空间 */
+.raf-module-head.raf-collapsible {
+  cursor: pointer;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.raf-collapse-arrow {
+  display: inline-block;
+  margin-right: 6px;
+  font-size: 10px;
+  opacity: 0.55;
+  width: 12px;
+}
+section.raf-collapsed > *:not(.raf-module-head) {
+  display: none !important;
+}
