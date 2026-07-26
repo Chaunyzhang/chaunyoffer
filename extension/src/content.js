@@ -846,7 +846,20 @@
 
     return result.filter((item) => item.group ? item.children?.some((child) => child.value) : item.value);
   }
-  async function getState() { const data = await chrome.storage.local.get(STORAGE_KEYS); const parsed = data.resumeParsed || { profile:{}, experiences:[], rawText:'' }; const editable = data.resumeEditable || buildEditable(parsed); if (!Array.isArray(editable.customFields)) editable.customFields = []; return { parsed, editable, flattened: data.resumeFlattened || flattenEditable(editable) }; }
+  // 存储数据兜底清洗：老版本的 resumeEditable 可能缺字段/结构过时，
+  // 直接渲染会抛异常导致视图卡死。这里一律合并到默认结构上。
+  function normalizeEditable(raw) {
+    const base = withDefaults({});
+    if (!raw || typeof raw !== 'object') return base;
+    if (raw.profile && typeof raw.profile === 'object') base.profile = { ...base.profile, ...raw.profile };
+    if (raw.experiences && typeof raw.experiences === 'object' && !Array.isArray(raw.experiences)) {
+      EXP_GROUPS.forEach((g) => { base.experiences[g.key] = Array.isArray(raw.experiences[g.key]) ? raw.experiences[g.key] : []; });
+    }
+    if (raw.moduleDrafts && typeof raw.moduleDrafts === 'object') base.moduleDrafts = raw.moduleDrafts;
+    if (Array.isArray(raw.customFields)) base.customFields = raw.customFields;
+    return base;
+  }
+  async function getState() { const data = await chrome.storage.local.get(STORAGE_KEYS); const parsed = data.resumeParsed || { profile:{}, experiences:[], rawText:'' }; const editable = data.resumeEditable ? normalizeEditable(data.resumeEditable) : buildEditable(parsed); return { parsed, editable, flattened: data.resumeFlattened || flattenEditable(editable) }; }
   async function persist(editable, options = {}) { if (options.skipRender || currentView === 'edit') skipStorageRenderCount += 1; const parsed = { profile: { ...editable.profile }, experiences: EXP_GROUPS.flatMap((g) => (editable.experiences[g.key] || []).filter((x) => Object.values(x).some(Boolean)).map((x) => ({ ...x, type:g.key, typeLabel:g.label }))), rawText: '' }; await chrome.storage.local.set({ resumeEditable: editable, resumeParsed: parsed, resumeFlattened: flattenEditable(editable), resumeUpdatedAt: Date.now() }); }
   const isEditable = (el) => el && (el.isContentEditable || el.tagName?.toLowerCase() === 'textarea' || (el.tagName?.toLowerCase() === 'input' && !['checkbox','radio','button','submit','file'].includes(el.type)));
   document.addEventListener('focusin', (e) => { const t = e.target; if (t instanceof HTMLElement && !t.closest(`#${PANEL_ID}`) && isEditable(t)) lastActiveEditable = t; });
@@ -2779,12 +2792,25 @@
     listRoot = root;
     const nonce = ++renderNonce;
     const previousScrollTop = options.preserveScroll ? (typeof options.scrollTop === 'number' ? options.scrollTop : root.scrollTop) : 0;
-    const staging = document.createElement('div');
-    if (currentView === 'edit') await renderEditView(staging, nonce, root);
-    else if (currentView === 'settings') renderSettingsView(staging);
-    else await renderPreviewView(staging, nonce);
-    if (nonce !== renderNonce) return;
-    root.replaceChildren(...staging.childNodes);
+    try {
+      const staging = document.createElement('div');
+      if (currentView === 'edit') await renderEditView(staging, nonce, root);
+      else if (currentView === 'settings') renderSettingsView(staging);
+      else await renderPreviewView(staging, nonce);
+      if (nonce !== renderNonce) return;
+      root.replaceChildren(...staging.childNodes);
+    } catch (err) {
+      // 渲染绝不能静默失败：否则视图卡在上一个页面，表现为「切换栏失灵」。
+      console.error('[chaunyoffer] render failed:', err);
+      if (nonce !== renderNonce) return;
+      const invalidated = /context invalidated/i.test(String(err?.message || err));
+      const box = document.createElement('div');
+      box.className = 'raf-empty';
+      box.textContent = invalidated ? '扩展刚更新过，请刷新本网页后重试。' : `页面渲染失败：${err?.message || err}。可尝试「编辑 → 清空数据」或刷新网页。`;
+      root.replaceChildren(box);
+      if (invalidated) toast('扩展刚更新过，请刷新当前网页后重试', true);
+      return;
+    }
     if (options.focusTarget) {
       requestAnimationFrame(() => {
         if (nonce !== renderNonce) return;
