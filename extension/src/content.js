@@ -756,7 +756,7 @@
       campusExperience: cloneRecordList(state.campusExperience || [])
     };
   };
-  const withDefaults = (parsed) => ({ profile: { ...Object.fromEntries(BASIC_FIELDS.map((f) => [f.key, ''])), advantages:'',skills:'',certificates:'',awards:'',academicWorks:'',languages:'',campusExperience:'',otherInfo:'', ...(parsed.profile || {}) }, experiences: { internship:[], project:[], work:[], ...Object.fromEntries(EXP_GROUPS.map((g) => [g.key, []])) }, moduleDrafts: {} });
+  const withDefaults = (parsed) => ({ profile: { ...Object.fromEntries(BASIC_FIELDS.map((f) => [f.key, ''])), advantages:'',skills:'',certificates:'',awards:'',academicWorks:'',languages:'',campusExperience:'',otherInfo:'', ...(parsed.profile || {}) }, experiences: { internship:[], project:[], work:[], ...Object.fromEntries(EXP_GROUPS.map((g) => [g.key, []])) }, moduleDrafts: {}, customFields: [] });
   // 导入合并：简历里有的字段才覆盖（命中的项），简历没有的字段保留手动填写的内容
   function mergeImportedEditable(prev, next) {
     const merged = next;
@@ -804,6 +804,8 @@
       prevList.forEach((p, i) => { if (!used.has(i) && Object.values(p).some((v) => filled(v))) out.push(p); });
       merged.moduleDrafts[mod.key] = out;
     });
+    // 扩展字段是手动创建的，简历里没有对应概念：整条保留手动数据
+    merged.customFields = Array.isArray(prev.customFields) ? prev.customFields : [];
     // 由合并后的草稿重新生成 profile 里的模块文本（技能标签/证书等）
     syncModules(merged, moduleState(merged));
     return merged;
@@ -819,6 +821,12 @@
     MODULES.forEach((module) => {
       const value = editable.profile?.[module.key] || '';
       if (value) result.push({ key: module.key, label: module.label, value });
+    });
+
+    (editable.customFields || []).forEach((cf, i) => {
+      const content = String(cf?.content || '').trim();
+      if (!content) return;
+      result.push({ key: `custom_${i}`, label: String(cf?.title || '').trim() || `扩展字段${i + 1}`, value: content });
     });
 
     EXP_GROUPS.forEach((group) => {
@@ -838,7 +846,7 @@
 
     return result.filter((item) => item.group ? item.children?.some((child) => child.value) : item.value);
   }
-  async function getState() { const data = await chrome.storage.local.get(STORAGE_KEYS); const parsed = data.resumeParsed || { profile:{}, experiences:[], rawText:'' }; const editable = data.resumeEditable || buildEditable(parsed); return { parsed, editable, flattened: data.resumeFlattened || flattenEditable(editable) }; }
+  async function getState() { const data = await chrome.storage.local.get(STORAGE_KEYS); const parsed = data.resumeParsed || { profile:{}, experiences:[], rawText:'' }; const editable = data.resumeEditable || buildEditable(parsed); if (!Array.isArray(editable.customFields)) editable.customFields = []; return { parsed, editable, flattened: data.resumeFlattened || flattenEditable(editable) }; }
   async function persist(editable, options = {}) { if (options.skipRender || currentView === 'edit') skipStorageRenderCount += 1; const parsed = { profile: { ...editable.profile }, experiences: EXP_GROUPS.flatMap((g) => (editable.experiences[g.key] || []).filter((x) => Object.values(x).some(Boolean)).map((x) => ({ ...x, type:g.key, typeLabel:g.label }))), rawText: '' }; await chrome.storage.local.set({ resumeEditable: editable, resumeParsed: parsed, resumeFlattened: flattenEditable(editable), resumeUpdatedAt: Date.now() }); }
   const isEditable = (el) => el && (el.isContentEditable || el.tagName?.toLowerCase() === 'textarea' || (el.tagName?.toLowerCase() === 'input' && !['checkbox','radio','button','submit','file'].includes(el.type)));
   document.addEventListener('focusin', (e) => { const t = e.target; if (t instanceof HTMLElement && !t.closest(`#${PANEL_ID}`) && isEditable(t)) lastActiveEditable = t; });
@@ -1154,16 +1162,25 @@
     const labelOf = {};
     BASIC_FIELDS.forEach((f) => { labelOf[f.key] = f.label; });
     MODULES.forEach((m) => { labelOf[m.key] = m.label; });
-    return Object.keys(profile)
+    const values = Object.keys(profile)
       .map((key) => ({ key, label: labelOf[key] || key, value: String(profile[key] || '').trim() }))
       .filter((x) => x.value);
+    // 扩展字段：有内容才可填；标题给 AI/规则做语义匹配，没标题用内容摘要代替
+    (editable?.customFields || []).forEach((cf, i) => {
+      const content = String(cf?.content || '').trim();
+      if (!content) return;
+      const title = String(cf?.title || '').trim();
+      values.push({ key: `custom_${i}`, label: title || truncate(content, 10), value: content });
+    });
+    return values;
   }
-  function matchAutofillKey(blob, values) {
+  function matchAutofillKey(blob, values, extraRules = []) {
     const text = String(blob || '').toLowerCase();
     if (!text) return null;
     const available = values instanceof Set ? values : new Set(values.map((v) => v.key));
     let best = null, bestScore = 0;
-    AUTOFILL_RULES.forEach((rule) => {
+    // extraRules（扩展字段的标题）排在前面：同分时用户自定义规则优先
+    [...extraRules, ...AUTOFILL_RULES].forEach((rule) => {
       if (!available.has(rule.key)) return;
       if (rule.block?.some((w) => text.includes(w))) return;
       rule.words.forEach((word) => {
@@ -1560,7 +1577,7 @@
   // ===== AI 识别（主力）：程序把页面聚成整体块 → AI 按块语义识别 → 程序保守填写 =====
   const AI_RECOGNIZE_PROMPT = `你是招聘网页表单的识别助手。用户会给你「页面块」和「简历数据」两组 JSON。
 页面块（blocks）：程序按 DOM 结构把相邻字段聚成的整体，每块含 id、hint（块内文本摘要）、fields（字段列表：id/label/input/options）。
-简历数据（resume）：basic 是基础字段（只列有内容的）；experiences 是经历条目（实习/工作/项目，index 从 0 开始）。
+简历数据（resume）：basic 是基础字段（只列有内容的；key 以 custom_ 开头的是用户自定义字段，label 是用户自拟的标题，按标题语义匹配网页字段）；experiences 是经历条目（实习/工作/项目，index 从 0 开始）。
 任务：判断每个字段应该填简历里的什么内容，只输出 JSON：
 {"blocks": {"块id": {"exp": 经历index或null, "fields": {"字段id": {"key": "basic的key"} 或 {"sub": "company|title|role|start|end|desc", "part": "year|month|day"}}}}}
 规则：
@@ -1748,7 +1765,7 @@
     return count;
   }
   // ===== 规则路径（冻结兜底）：关键词识别 + 块聚类，无 AI 或 AI 失败时整体接管 =====
-  async function ruleFillFields(targetFields, { values, available, basicValueOf, expEntries, consumed, missed, dbg }) {
+  async function ruleFillFields(targetFields, { values, available, basicValueOf, expEntries, consumed, missed, dbg, customRules = [] }) {
     let count = 0;
     const expFieldEntries = [];
     const bareDateParts = classifyBareDateParts(targetFields);
@@ -1757,7 +1774,7 @@
     for (const field of targetFields) {
       const bareHit = bareDateParts.get(field.el);
       if (bareHit && bareUsable(bareHit)) { expFieldEntries.push({ field, sub: bareHit.sub, part: bareHit.part }); continue; }
-      const key = matchAutofillKey(field.blob, available);
+      const key = matchAutofillKey(field.blob, available, customRules);
       if (!key) { missed.push(field); dbg.push(dbgLine('○', field.blob, '（未识别）')); continue; }
       if (EXP_RULE_KEYS.includes(key)) { expFieldEntries.push({ field, sub: key }); continue; }
       const item = values.find((v) => v.key === key);
@@ -1786,6 +1803,10 @@
     const available = new Set(values.map((v) => v.key));
     if (expEntries.length) EXP_RULE_KEYS.forEach((k) => available.add(k));
     const basicValueOf = (key) => values.find((v) => v.key === key)?.value || '';
+    // 扩展字段 → 动态规则：标题作为匹配词（有内容才会进 values/available，没标题不参与规则匹配）
+    const customRules = (editable.customFields || [])
+      .map((cf, i) => ({ key: `custom_${i}`, words: [String(cf?.title || '').trim().toLowerCase()] }))
+      .filter((r) => r.words[0]);
 
     const dbg = [`🔎 扫描到 ${fields.length} 个待填字段（简历经历条目 ${expEntries.length} 条）`];
     let filledCount = 0;
@@ -1808,11 +1829,11 @@
       } catch (error) {
         progress.update(`⚠ AI 识别失败，已回落规则模式，继续填写…`);
         dbg.push(`⚠ AI 识别失败，回落规则模式：${escHtml(String(error?.message || error))}`);
-        filledCount += await ruleFillFields(fields, { values, available, basicValueOf, expEntries, consumed, missed, dbg });
+        filledCount += await ruleFillFields(fields, { values, available, basicValueOf, expEntries, consumed, missed, dbg, customRules });
       }
     } else {
       progress.update(`⏳ 正在按规则识别填写 ${fields.length} 个字段…`);
-      filledCount += await ruleFillFields(fields, { values, available, basicValueOf, expEntries, consumed, missed, dbg });
+      filledCount += await ruleFillFields(fields, { values, available, basicValueOf, expEntries, consumed, missed, dbg, customRules });
     }
 
     // 页面没预留足够的空白经历块：尝试自动点「添加」再补填（AI 优先，规则兜底）
@@ -1839,7 +1860,7 @@
           fresh.forEach((f) => { if (!missed.includes(f)) missed.push(f); });
         }
       } else {
-        filledCount += await ruleFillFields(fresh, { values, available, basicValueOf, expEntries, consumed, missed, dbg });
+        filledCount += await ruleFillFields(fresh, { values, available, basicValueOf, expEntries, consumed, missed, dbg, customRules });
       }
     }
     if (skipped.length) {
@@ -2166,6 +2187,7 @@
     if (target.kind === 'record') return `[data-raf-kind="record"][data-raf-module="${target.module}"][data-raf-index="${target.index}"]`;
     if (target.kind === 'tag') return `[data-raf-kind="tag"][data-raf-module="${target.module}"][data-raf-index="${target.index}"]`;
     if (target.kind === 'bullet') return `[data-raf-kind="bullet"][data-raf-module="${target.module}"][data-raf-index="${target.index}"]`;
+    if (target.kind === 'custom') return `[data-raf-kind="custom"][data-raf-index="${target.index}"]`;
     return '';
   };
   function renderSettingsView(root) {
@@ -2623,6 +2645,20 @@
       form.appendChild(section);
     });
 
+    // 扩展字段预览：只展示有内容的条目（点击写入页面活动输入框）
+    const customItems = (editable.customFields || []).filter((cf) => filled(cf?.content));
+    if (customItems.length) {
+      const section = document.createElement('section');
+      section.className = 'raf-edit-section raf-lite-section';
+      section.appendChild(sectionHead('扩展字段'));
+      const grid = document.createElement('div');
+      grid.className = 'raf-edit-grid';
+      customItems.forEach((cf) => grid.appendChild(previewField({ label: filled(cf.title) || '扩展字段', type: 'textarea' }, String(cf.content).trim())));
+      section.appendChild(grid);
+      makeCollapsible(section, 'custom');
+      form.appendChild(section);
+    }
+
     if (nonce !== renderNonce) return;
     if (!form.children.length) {
       root.innerHTML = "<div class='raf-empty'>切换到“编辑”后导入简历，这里会展示最终预览与填充卡片。</div>";
@@ -2633,6 +2669,50 @@
   function renderTags(form, mod, state, editable, root) { const items = state[mod.key] || []; if (!items.length) items.push(''); const section = document.createElement('section'); section.className = 'raf-edit-section raf-lite-section'; section.appendChild(sectionHead(mod.label, '添加标签', async () => { items.push(''); syncModules(editable, state); await persist(editable, { skipRender: true }); renderCurrentView(root, { focusTarget: { kind: 'tag', module: mod.key, index: items.length - 1 } }); })); const wrap = document.createElement('div'); wrap.className = 'raf-tag-list'; items.forEach((item, i) => { const chip = document.createElement('div'); chip.className = 'raf-tag-edit'; chip.dataset.rafKind = 'tag'; chip.dataset.rafModule = mod.key; chip.dataset.rafIndex = String(i); const input = document.createElement('input'); input.type = 'text'; input.className = 'raf-tag-input'; input.value = item; input.placeholder = '请输入标签'; input.addEventListener('input', async (e) => { items[i] = e.target.value; syncModules(editable, state); await persist(editable); }); chip.appendChild(input); chip.appendChild(delBtn(async () => { const fixedScrollTop = root.scrollTop; items.splice(i, 1); syncModules(editable, state); await persist(editable, { skipRender: true }); renderCurrentView(root, { preserveScroll: true, scrollTop: fixedScrollTop }); })); wrap.appendChild(chip); }); makeCollapsible(section, `mod:${mod.key}`); section.appendChild(wrap); form.appendChild(section); }
   function renderBullets(form, mod, state, editable, root) { const items = state[mod.key] || []; if (!items.length) items.push(''); const section = document.createElement('section'); section.className = 'raf-edit-section raf-lite-section'; section.appendChild(sectionHead(mod.label, '添加一条', async () => { items.push(''); syncModules(editable, state); await persist(editable, { skipRender: true }); renderCurrentView(root, { focusTarget: { kind: 'bullet', module: mod.key, index: items.length - 1 } }); })); const list = document.createElement('div'); list.className = 'raf-inline-list'; items.forEach((item, i) => { const row = document.createElement('div'); row.className = 'raf-inline-row'; row.dataset.rafKind = 'bullet'; row.dataset.rafModule = mod.key; row.dataset.rafIndex = String(i); const input = document.createElement('input'); input.type = 'text'; input.className = 'raf-edit-input'; input.value = item; input.placeholder = `请输入${mod.label}`; input.addEventListener('input', async (e) => { items[i] = e.target.value; syncModules(editable, state); await persist(editable); }); row.appendChild(input); row.appendChild(delBtn(async () => { const fixedScrollTop = root.scrollTop; items.splice(i, 1); syncModules(editable, state); await persist(editable, { skipRender: true }); renderCurrentView(root, { preserveScroll: true, scrollTop: fixedScrollTop }); })); list.appendChild(row); }); makeCollapsible(section, `mod:${mod.key}`); section.appendChild(list); form.appendChild(section); }
   function renderRecords(form, mod, state, editable, root) { const items = state[mod.key] || []; if (!items.length) items.push(Object.fromEntries(mod.fields.map((f) => [f.key, '']))); const section = document.createElement('section'); section.className = 'raf-edit-section raf-lite-section'; section.appendChild(sectionHead(mod.label, '添加一条', async () => { items.push(Object.fromEntries(mod.fields.map((f) => [f.key, '']))); syncModules(editable, state); await persist(editable, { skipRender: true }); renderCurrentView(root, { focusTarget: { kind: 'record', module: mod.key, index: items.length - 1 } }); })); items.forEach((item, i) => { const entry = document.createElement('div'); entry.className = 'raf-edit-entry'; entry.dataset.rafKind = 'record'; entry.dataset.rafModule = mod.key; entry.dataset.rafIndex = String(i); const head = document.createElement('div'); head.className = 'raf-edit-entry-head'; const strong = document.createElement('strong'); strong.textContent = `${mod.label}${i + 1}`; head.appendChild(strong); head.appendChild(delBtn(async () => { const fixedScrollTop = root.scrollTop; items.splice(i, 1); syncModules(editable, state); await persist(editable, { skipRender: true }); renderCurrentView(root, { preserveScroll: true, scrollTop: fixedScrollTop }); })); entry.appendChild(head); const grid = document.createElement('div'); grid.className = 'raf-edit-grid'; mod.fields.forEach((field) => grid.appendChild(inputField(field, item[field.key], async (next) => { item[field.key] = next; syncModules(editable, state); await persist(editable); }))); entry.appendChild(grid); section.appendChild(entry); }); makeCollapsible(section, `mod:${mod.key}`); form.appendChild(section); }
+  // 扩展字段：用户自定义「标题 + 内容」（都选填），AI 按标题语义匹配网页表单填入内容
+  function renderCustomFields(form, editable, root) {
+    if (!Array.isArray(editable.customFields)) editable.customFields = [];
+    const items = editable.customFields;
+    const section = document.createElement('section');
+    section.className = 'raf-edit-section raf-lite-section';
+    section.appendChild(sectionHead('扩展字段', '添加一条', async () => {
+      items.push({ title: '', content: '' });
+      await persist(editable, { skipRender: true });
+      renderCurrentView(root, { focusTarget: { kind: 'custom', index: items.length - 1 } });
+    }));
+    if (!items.length) {
+      const hint = document.createElement('div');
+      hint.className = 'raf-empty';
+      hint.textContent = '固定字段不够用时加一条：填了标题和内容后，填充时会按标题匹配网页表单，把内容填进去。';
+      section.appendChild(hint);
+    }
+    items.forEach((item, i) => {
+      const entry = document.createElement('div');
+      entry.className = 'raf-edit-entry';
+      entry.dataset.rafKind = 'custom';
+      entry.dataset.rafIndex = String(i);
+      const head = document.createElement('div');
+      head.className = 'raf-edit-entry-head';
+      const strong = document.createElement('strong');
+      strong.textContent = filled(item.title) || `字段${i + 1}`;
+      head.appendChild(strong);
+      head.appendChild(delBtn(async () => {
+        const fixedScrollTop = root.scrollTop;
+        items.splice(i, 1);
+        await persist(editable, { skipRender: true });
+        renderCurrentView(root, { preserveScroll: true, scrollTop: fixedScrollTop });
+      }));
+      entry.appendChild(head);
+      const grid = document.createElement('div');
+      grid.className = 'raf-edit-grid';
+      grid.appendChild(inputField({ key: 'title', label: '标题', type: 'text' }, item.title, async (next) => { item.title = next; await persist(editable); }));
+      grid.appendChild(inputField({ key: 'content', label: '内容', type: 'textarea' }, item.content, async (next) => { item.content = next; await persist(editable); }));
+      entry.appendChild(grid);
+      section.appendChild(entry);
+    });
+    makeCollapsible(section, 'custom');
+    form.appendChild(section);
+  }
   function renderExperiences(form, editable, root) { EXP_GROUPS.forEach((group) => { const items = editable.experiences[group.key] || []; if (!items.length) items.push(Object.fromEntries(group.fields.map((field) => [field.key, '']))); const section = document.createElement('section'); section.className = 'raf-edit-section raf-lite-section'; section.appendChild(sectionHead(group.label, '添加一条', async () => { items.push(Object.fromEntries(group.fields.map((field) => [field.key, '']))); await persist(editable, { skipRender: true }); renderCurrentView(root, { focusTarget: { kind: 'experience', group: group.key, index: items.length - 1 } }); })); items.forEach((item, i) => { const entry = document.createElement('div'); entry.className = 'raf-edit-entry'; entry.dataset.rafKind = 'experience'; entry.dataset.rafGroup = group.key; entry.dataset.rafIndex = String(i); const head = document.createElement('div'); head.className = 'raf-edit-entry-head'; const strong = document.createElement('strong'); strong.textContent = `${group.label}${i + 1}`; head.appendChild(strong); head.appendChild(delBtn(async () => { const fixedScrollTop = root.scrollTop; const idx = items.indexOf(item); if (idx >= 0) items.splice(idx, 1); await persist(editable, { skipRender: true }); renderCurrentView(root, { preserveScroll: true, scrollTop: fixedScrollTop }); })); entry.appendChild(head); const grid = document.createElement('div'); grid.className = 'raf-edit-grid'; group.fields.forEach((field) => grid.appendChild(inputField(field, item[field.key], async (next) => { item[field.key] = next; await persist(editable); }))); entry.appendChild(grid); section.appendChild(entry); }); makeCollapsible(section, `exp:${group.key}`); form.appendChild(section); }); }
   function renderEditTools(form, root) {
     const section = document.createElement('section');
@@ -2690,6 +2770,7 @@
       else if (mod.kind === 'bullets') renderBullets(form, mod, state, editable, hostRoot);
       else renderRecords(form, mod, state, editable, hostRoot);
     });
+    renderCustomFields(form, editable, hostRoot);
 
     if (nonce !== renderNonce) return;
     root.appendChild(form);
@@ -2723,7 +2804,15 @@
       });
     }
   }
-  async function savePanelState(panel) { await chrome.storage.local.set({ [PIN_KEY]: pinned, [POS_KEY]: { left: panel.style.left, top: panel.style.top }, [VIEW_KEY]: currentView, [BRIGHTNESS_KEY]: panelBrightness, [OPACITY_KEY]: panelOpacity, [WIDTH_KEY]: panelWidthPercent, [HEIGHT_KEY]: panelHeightPercent, [GLASS_SAT_KEY]: glassSaturation }); }
+  async function savePanelState(panel) {
+    try {
+      await chrome.storage.local.set({ [PIN_KEY]: pinned, [POS_KEY]: { left: panel.style.left, top: panel.style.top }, [VIEW_KEY]: currentView, [BRIGHTNESS_KEY]: panelBrightness, [OPACITY_KEY]: panelOpacity, [WIDTH_KEY]: panelWidthPercent, [HEIGHT_KEY]: panelHeightPercent, [GLASS_SAT_KEY]: glassSaturation });
+    } catch (err) {
+      // 扩展重载/更新后旧页面的 content script 会失效（Extension context invalidated），
+      // 存储失败不应阻断 UI 交互。
+      console.warn('[chaunyoffer] savePanelState failed:', err);
+    }
+  }
   async function applyPinState(panel, checked) {
     const rect = panel.getBoundingClientRect();
     pinned = checked;
@@ -2796,25 +2885,25 @@
     await renderCurrentView(listEl);
     syncPanelLayout(panel);
 
-    settingsTab.addEventListener('click', async () => {
+    settingsTab.addEventListener('click', () => {
       currentView = 'settings';
       applyToolbarByView();
-      await savePanelState(panel);
       renderCurrentView(listEl);
+      savePanelState(panel);
     });
 
-    previewTab.addEventListener('click', async () => {
+    previewTab.addEventListener('click', () => {
       currentView = 'preview';
       applyToolbarByView();
-      await savePanelState(panel);
       renderCurrentView(listEl);
+      savePanelState(panel);
     });
 
-    editTab.addEventListener('click', async () => {
+    editTab.addEventListener('click', () => {
       currentView = 'edit';
       applyToolbarByView();
-      await savePanelState(panel);
       renderCurrentView(listEl);
+      savePanelState(panel);
     });
 
     chrome.storage.onChanged.addListener((changes, area) => {
